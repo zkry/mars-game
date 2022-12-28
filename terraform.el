@@ -63,7 +63,8 @@
   heat     heat-production
   rating
   corp-card
-  hand)
+  hand
+  played)
 
 
 ;;; game board
@@ -186,9 +187,9 @@
    :cost 13
    :tags '(jovian)
    :victory-points 1
-   :requirements "(> titanium-production 0)"
+   :requirements '(> titanium-production 0)
    :type 'automated
-   :effect "[(dec-other titanium-production 1) (inc titanium-production 1)]"))
+   :effect [(dec-other titanium-production 1) (inc titanium-production 1)]))
 (defconst tr--sample-card-3
   (tr-card-create
    :number 3
@@ -196,15 +197,15 @@
    :cost 13
    :type 'automated
    :tags '(power building)
-   :effect "[(inc power-production 1) (inc-tempurature)]"))
+   :effect [(inc power-production 1) (inc-tempurature)]))
 (defconst tr--sample-card-4
   (tr-card-create
    :number 4
    :name "Cloud Seeding"
    :cost 11
    :type 'automated
-   :requirements "(>= ocean 3)"
-   :effect "[(dec money-production 1) (inc heat-production 1) (inc plant-production 2)]"))
+   :requirements '(>= ocean 3)
+   :effect [(dec money-production 1) (inc heat-production 1) (inc plant-production 2)]))
 (defconst tr--sample-card-5
   (tr-card-create
    :number 5
@@ -212,8 +213,8 @@
    :cost 13
    :type 'active
    :tags '(science)
-   :victory-points "(* resource 3)"
-   :requirements "(<= o2 6)"
+   :victory-points '(* resource 3)
+   :requirements '(<= oxygen 6)
    :type 'automated
    :action (lambda (player)
              (let ((top-card (tr-take-card)))
@@ -246,8 +247,8 @@
    :type 'automated
    :tags '(city building)
    :tile 'capital
-   :requirements "(>= ocean 4)"
-   :effect "[(dec energy-production 2) (inc money-production 5)]"
+   :requirements '(>= ocean 4)
+   :effect [(dec energy-production 2) (inc money-production 5)]
    :victory-points
    (lambda ()
      (let ((tile (tr-get-tile-by-name 'capital)))
@@ -262,7 +263,7 @@
    :cost 14
    :type 'event
    :tags '(space event)
-   :effect "[(inc-tempurature) (inc titanium 5) (dec-other plant 3)]"))
+   :effect [(inc-tempurature) (inc titanium 5) (dec-other plant 3)]))
 (defconst tr--sample-card-10
   (tr-card-create
    :number 10
@@ -270,7 +271,7 @@
    :cost 21
    :type 'event
    :tags '(space event)
-   :effect "[(inc-tempurature) (add-ocean) (dec-other plant 3)]"))
+   :effect [(inc-tempurature) (add-ocean) (dec-other plant 3)]))
 (defconst tr--sample-card-11
   (tr-card-create
    :number 11
@@ -278,7 +279,7 @@
    :cost 27
    :type 'event
    :tags '(space event)
-   :effect "[(inc-tempurature 2) (inc titanium 4) (dec-other plant 4)]"))
+   :effect [(inc-tempurature 2) (inc titanium 4) (dec-other plant 4)]))
 (defconst tr--sample-card-12
   (tr-card-create
    :number 12
@@ -289,6 +290,26 @@
    :action (lambda (player)
              (tr-player-pay player 12 'titanium)
              (tr-add-ocean))))
+
+(defconst tr-all-cards
+  (list tr--sample-card-1
+        tr--sample-card-2
+        tr--sample-card-3
+        tr--sample-card-4
+        tr--sample-card-5
+        tr--sample-card-6
+        tr--sample-card-7
+        tr--sample-card-8
+        tr--sample-card-9
+        tr--sample-card-10
+        tr--sample-card-11
+        tr--sample-card-12))
+
+(defun tr-card-by-id (id)
+  "Return the card of the given ID."
+  (seq-find (lambda (card)
+              (= (tr-card-number card) id))
+            tr-all-cards))
 
 (cl-defstruct (tr-corporation
                (:constructor tr-corporation-create)
@@ -306,41 +327,41 @@
    :number 1
    :name "Credicor"
    :tags nil
-   :effect "[(inc money 57)]"
+   :effect [(inc money 57)]
    :active-effect "(on (spend 20) (inc money 4))"))
 (defconst tr--sample-corp-2
   (tr-corporation-create
    :number 2
    :name "Ecoline"
    :tags '(plant)
-   :effect "[(inc plant-production 2) (inc money 36) (inc plant 3)]"
+   :effect [(inc plant-production 2) (inc money 36) (inc plant 3)]
    :active-effect "(set greenery-cost 7)"))
 (defconst tr--sample-corp-2
   (tr-corporation-create
    :number 3
    :name "Helion"
    :tags '(space)
-   :effect "[(inc heat-production 3) (inc money 42)]"
+   :effect [(inc heat-production 3) (inc money 42)]
    :active-effect "(set heat-as-money t)"))
 (defconst tr--sample-corp-3
   (tr-corporation-create
    :number 3
    :tags '(space)
-   :effect "[(inc heat-production 3) (inc money 42)]"
+   :effect [(inc heat-production 3) (inc money 42)]
    :active-effect "(set heat-as-money t)"))
 (defconst tr--sample-corp-4
   (tr-corporation-create
    :number 4
    :name "Mining Guild"
    :tags '(building building)
-   :effect "[(inc money 30) (inc steel 5) (inc steel-production 1)]"
+   :effect [(inc money 30) (inc steel 5) (inc steel-production 1)]
    :active-effect "(on gain-board-steel-or-titanium (inc steel-production 1))"))
 (defconst tr--sample-corp-5
   (tr-corporation-create
    :number 5
    :name "Interplanetary Cinematics"
    :tags '(building)
-   :effect "[(inc money 30) (inc steel 20)]"
+   :effect [(inc money 30) (inc steel 20)]
    :active-effect "(on (play-tag event) (inc money 2))"))
 
 (defun tr-sample-deck ()
@@ -366,6 +387,12 @@
 (defconst tr--game-state-max-oxygen 19)
 (defconst tr--game-state-max-ocean 9)
 
+(defun tr-oxygen-to-ct (oxygen)
+  (/ (+ oxygen 30) 2))
+
+(defun tr-ct-to-oxygen (oxygen)
+  (- (* oxygen 2) 30))
+
 (cl-defstruct
     (tr-game-state
      (:constructor tr-game-state-create)
@@ -387,7 +414,6 @@
                        (tr-player-create
                         :id (intern (format "player%d" player-no))))
                      (number-sequence 1 player-ct))
-   :deck nil
    :param-ocean 0
    :param-tempurature 0
    :param-oxygen 0
@@ -791,6 +817,25 @@
     (setf (tr-game-state-corporation-deck tr-game-state) (seq-drop corp-deck 2))
     top-two))
 
+(defun tr-!draw-cards (n)
+  ""
+  (let* ((deck (tr-game-state-deck tr-game-state))
+         (top (seq-take deck n)))
+    (setf (tr-game-state-corporation-deck tr-game-state) (seq-drop deck n))
+    top))
+
+(defun tr-!play-in-front (project-id)
+  "Move a card from the players hand to in front of them."
+  (let* ((hand (tr-player-hand tr-active-player))
+         (card (seq-find (lambda (card) (= tr-card-number project-id)) hand))
+         (new-hand (seq-remove
+                    (lambda (card) (= tr-card-number project-id))
+                    hand))
+         (played (tr-player-played tr-active-player)))
+    (setf (tr-player-hand tr-active-player) new-hand)
+    (setf (tr-player-played tr-active-player)
+          (cons card played))))
+
 (defun tr-!increment-user-resource (resource amount)
   "Increase the current users RESOURCE by AMOUNT."
   (unless tr-active-player
@@ -876,6 +921,15 @@
           (tr-!place-city location)))))
    effect))
 
+(defun tr-!run-project (project-id params)
+  "Run the effects of a given card."
+  (let* ((card (tr-card-by-id project-id))
+         (cost (tr-card-cost card))
+         (effect (tr-card-effect card)))
+    (tr-!increment-user-resource 'money (- cost))
+    (tr-!run-effect effect params)
+    (tr-!play-in-front project-id project-id)))
+
 ;; Turn order ---
 
 (defun tr-!next-player ()
@@ -902,6 +956,49 @@
 
 ;; Action generation
 
+(defun tr-get-requirement-count (item)
+  (pcase item
+    ('money (tr-player-money tr-active-player))
+    ('money-production (tr-player-money-production tr-active-player))
+    ('steel (tr-player-steel tr-active-player))
+    ('steel-production (tr-player-steel-production tr-active-player))
+    ('titanium (tr-player-titanium tr-active-player))
+    ('titanium-production (tr-player-titanium-production tr-active-player))
+    ('plant-production (tr-player-plant-production tr-active-player))
+    ('plant (tr-player-plant-production tr-active-player))
+    ('energy-production (tr-player-energy-production tr-active-player))
+    ('energy (tr-player-energy-production tr-active-player))
+    ('heat-production (tr-player-heat-production tr-active-player))
+    ('heat (tr-player-heat-production tr-active-player))
+    ('ocean (tr-game-state-param-ocean tr-game-state))
+    ('oxygen (tr-ct-to-oxygen (tr-game-state-param-oxygen tr-game-state)))))
+
+(defun tr-requirements-satisfied-p (requirements)
+  (pcase requirements
+    (`(> ,resource ,amt)  ;; TODO: add pred to check that resource is symbol
+     (> (tr-get-requirement-count resource) amt))
+    (`(>= ,resource ,amt)
+     (>= (tr-get-requirement-count resource) amt))
+    (`(< ,resource ,amt)
+     (< (tr-get-requirement-count resource) amt))
+    (`(<= ,resource ,amt)
+     (<= (tr-get-requirement-count resource) amt))))
+
+(defun tr-playable-projects-for (player)
+  (let ((money (tr-player-money player))
+        (hand (tr-player-hand player)))
+    (let ((tr-active-player player))
+      (seq-map
+       (lambda (card)
+         (tr-card-number card))
+       (seq-filter
+        (lambda (card)
+          (let ((cost (tr-card-cost card))
+                (requirements (tr-card-requirements card)))
+            (and (>= money cost)
+                 (tr-requirements-satisfied-p requirements))))
+        hand)))))
+
 (defun tr-standard-projects-for (player)
   "Return list of all standard projects a player can take."
   (let ((hand (tr-player-hand player))
@@ -917,34 +1014,42 @@
 
 (defun tr-actions-for (player)
   "Return description of all actions the player can take."
-  '(action ((projects . (1 3 6))
-            (standard-projects . (sell-patents power-plant asteroid aquifer greenery city))
+  `(action ((projects . ,(tr-playable-projects-for player))
+            (standard-projects . ,(tr-standard-projects-for player))
             (extra . (pass)))))
 
 ;; TODO: I don't like how the actions spec is all over the place...
 (defun tr-action-performed (player action)
   (pcase action
     (`(projects ,project-id ,params)
-     (message "PROJECT %s %s" project-id params))
+     (tr-!run-project project-id params)
+     (tr-!step-turn))
     (`(standard-projects sell-patents ,project-id)
      nil)
     (`(standard-projects power-plant)
-     (tr-!run-effect [(inc energy-production 1) (dec money 11)])
+     (tr-!run-effect [(dec money 11) (inc energy-production 1)])
      (tr-!step-turn))
     (`(standard-projects asteroid)
-     (tr-!run-effect [(inc-param tempurature 1) (dec money 14)])
+     (tr-!run-effect [(dec money 14) (inc-param tempurature 1)])
      (tr-!step-turn))
     (`(standard-projects aquifer ,location) ;; TODO change "location" to generic PARAMS
-     (tr-!run-effect [(add-ocean)] (list location)))
+     (tr-!run-effect [(dec money 18) (add-ocean)] (list location)))
     (`(standard-projects greenery location) ;; TODO change "location" to generic PARAMS
-     (tr-!run-effect [(add-greenery)] (list location)))
+     (tr-!run-effect [(dec money 23) (add-greenery)] (list location)))
     (`(standard-projects city location) ;; TODO change "location" to generic PARAMS
-     (tr-!run-effect [(add-city)] (list location)))
+     (tr-!run-effect [(dec money 25) (add-city)] (list location)))
     (`(extra pass)
      (tr-!player-pass))))
 
-(defun tr-!corporation-selected (player selection) ;; TODO: change name
-  (setf (tr-player-corp-card player) selection)
+(defun tr-!corporation-selected (player selected-corp selected-cards) ;; TODO: change name
+  ;; TODO Check that selection is valid
+  (setf (tr-player-corp-card player) selected-corp)
+  (let ((tr-active-player player))
+    (tr-!run-effect (tr-corporation-effect selected-corp))
+    (tr-!increment-user-resource 'money (- (* 3 (length selected-cards))))
+    (setf (tr-player-hand tr-active-player) selected-cards)) ;; TODO beginner corp?
+  ;; TODO - apply effect of corporation
+  
   (if (tr-?all-players-ready)
       (let ((first-player (tr-?first-player)))
         (setq tr-active-player first-player)
@@ -969,9 +1074,10 @@
   (unless tr-game-state
     (error "No initialized game state"))
   (dolist (player (tr-game-state-players tr-game-state))
-    (let ((corps (tr-!draw-corporations)))
+    (let ((corps (tr-!draw-corporations))
+          (cards (tr-!draw-cards 10)))
       (tr->request player
-                   `(select-corporation ,corps)
+                   `(select-starting-cards ,corps ,cards)
                    #'tr-!corporation-selected))))
 
 (provide 'terraform)

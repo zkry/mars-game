@@ -581,7 +581,10 @@
        (list (propertize "~ ~ ~" 'font-lock-face 'tr-ocean-face)
              (propertize "~.~.~.~" 'font-lock-face 'tr-ocean-face)
              (propertize "~.~.~.~" 'font-lock-face 'tr-ocean-face)
-             (propertize "~ ~ ~" 'font-lock-face 'tr-ocean-face))))
+             (format "%s_%s_%s"
+                     (propertize "~" 'font-lock-face 'tr-ocean-face)
+                     (propertize "~" 'font-lock-face 'tr-ocean-face)
+                     (propertize "~" 'font-lock-face 'tr-ocean-face)))))
 
 (defun tr--board-line-top-greenery (tile line-no)
   (let ((player (plist-get tile :player)))
@@ -800,6 +803,56 @@
         (insert (funcall line-gen player)))
       (insert "\n"))))
 
+(defun tr--display-project-selection (project-ids)
+  (insert "Select a Project:\n")
+  (dolist (proj-id project-ids)
+    (insert "   " (format "%d" proj-id) "\n")))
+
+(defun tr--display-standard-project-selection (standard-project-ids)
+  (insert "Select a Standard Project:\n")
+  (dolist (proj-id standard-project-ids)
+    (insert "   " (format "%s" proj-id) "\n")))
+
+(defun tr--display-extra-selection (extras)
+  (insert "not implemented\n"))
+
+(defun tr--display-standard-action-selection (actions)
+  "Display the standard action selection input."
+  
+  (dolist (action actions)
+    (insert "\n")
+    (let* ((action-symbol (car action))
+           (action-params (cdr action)))
+      (pcase action-symbol
+        ('projects (tr--display-project-selection action-params))
+        ('standard-projects (tr--display-standard-project-selection action-params))
+        ('extra (tr--display-extra-selection action-params))))))
+
+;; (cadr terraform-pending-request)
+
+(pcase '(test 1 2 4 4)
+  (`(test &rest ,a)
+   (list a b c d)))
+;; (cadr terraform-pending-request)
+(defun tr--display-action-selection ()
+  "Display the section asking user to make input."
+  (let* ((request (cadr terraform-pending-request)))
+    (pcase request
+      (`(action ,actions)
+       (tr--display-standard-action-selection actions)))))
+
+(defconst tr-main-buffer "*terraforming*") ;; TODO: support multiple instances of the game
+
+(defun tr-display-board ()
+  "Display the board according to the current request."
+  (with-current-buffer (get-buffer-create tr-main-buffer)
+    (erase-buffer)
+    (tr--display-board)
+    (tr--display-player-panel)
+    (tr--display-action-selection)))
+
+
+
 
 ;;; Game Flow
 
@@ -823,6 +876,13 @@
          (top (seq-take deck n)))
     (setf (tr-game-state-corporation-deck tr-game-state) (seq-drop deck n))
     top))
+
+(defun tr-!discard-cards (card-ids)
+  (let* ((hand (tr-player-hand tr-active-player))
+         (new-hand (seq-remove
+                    (lambda (card) (member (tr-card-number card) card-ids))
+                    hand)))
+    (setf (tr-player-hand tr-active-player) new-hand)))
 
 (defun tr-!play-in-front (project-id)
   "Move a card from the players hand to in front of them."
@@ -982,7 +1042,8 @@
     (`(< ,resource ,amt)
      (< (tr-get-requirement-count resource) amt))
     (`(<= ,resource ,amt)
-     (<= (tr-get-requirement-count resource) amt))))
+     (<= (tr-get-requirement-count resource) amt))
+    (_ t)))
 
 (defun tr-playable-projects-for (player)
   (let ((money (tr-player-money player))
@@ -1020,12 +1081,11 @@
 
 ;; TODO: I don't like how the actions spec is all over the place...
 (defun tr-action-performed (player action)
+  "Generic PLAYER action of specification ACTION"
   (pcase action
     (`(projects ,project-id ,params)
      (tr-!run-project project-id params)
      (tr-!step-turn))
-    (`(standard-projects sell-patents ,project-id)
-     nil)
     (`(standard-projects power-plant)
      (tr-!run-effect [(dec money 11) (inc energy-production 1)])
      (tr-!step-turn))
@@ -1034,22 +1094,32 @@
      (tr-!step-turn))
     (`(standard-projects aquifer ,location) ;; TODO change "location" to generic PARAMS
      (tr-!run-effect [(dec money 18) (add-ocean)] (list location)))
-    (`(standard-projects greenery location) ;; TODO change "location" to generic PARAMS
+    (`(standard-projects greenery ,location) ;; TODO change "location" to generic PARAMS
      (tr-!run-effect [(dec money 23) (add-greenery)] (list location)))
-    (`(standard-projects city location) ;; TODO change "location" to generic PARAMS
+    (`(standard-projects city ,location) ;; TODO change "location" to generic PARAMS
      (tr-!run-effect [(dec money 25) (add-city)] (list location)))
+    (`(standard-projects sell-patents ,card-ids) ;; TODO change "cards" to generic PARAMS
+     (tr-!discard-cards card-ids)
+     (tr-!increment-user-resource 'money (length card-ids)))
     (`(extra pass)
-     (tr-!player-pass))))
+     (tr-!player-pass))
+    (t (error "Invalid action response %s" action))))
 
 (defun tr-!corporation-selected (player selected-corp selected-cards) ;; TODO: change name
+  "Action to make initial selection of PLAYER for SELECTED-CORP and SELECTED-CARDS."
   ;; TODO Check that selection is valid
+  (unless (tr-player-p player)
+    (error "Invalid type (terraform-player-p %s)" player))
+  (unless (tr-corporation-p selected-corp)
+    (error "Invalid type (terraform-corporation-p %s)" selected-corp))
+  (unless (seq-every-p #'tr-card-p selected-cards)
+    (error "Invalid type (seq-every-p 'terraform-card-p %s)" selected-cards))
   (setf (tr-player-corp-card player) selected-corp)
   (let ((tr-active-player player))
     (tr-!run-effect (tr-corporation-effect selected-corp))
     (tr-!increment-user-resource 'money (- (* 3 (length selected-cards))))
     (setf (tr-player-hand tr-active-player) selected-cards)) ;; TODO beginner corp?
   ;; TODO - apply effect of corporation
-  
   (if (tr-?all-players-ready)
       (let ((first-player (tr-?first-player)))
         (setq tr-active-player first-player)
@@ -1061,7 +1131,7 @@
 (defun tr->request (player action callback)
   (setq tr-pending-request (list player action callback)))
 
-(defun tr-submit-response (player response)
+(defun tr-submit-response (player response) ;; TODO: do we really need to pass the player here?
   "Submit RESPONSE for PLAYER."
   (unless tr-pending-request
     (error "No request to submit response for"))
@@ -1079,6 +1149,27 @@
       (tr->request player
                    `(select-starting-cards ,corps ,cards)
                    #'tr-!corporation-selected))))
+
+;;; TODO LIST
+;; Card to string
+;; Basic selection process to updating the state.
+
+;;; DEMO SETUP
+
+;; (terraform-run)
+
+;; (cadr terraform-pending-request)
+
+;; (let* ((p1 (car (terraform-game-state-players terraform-game-state)))
+;;        (req (cadr terraform-pending-request))
+;;        (corps (cadr req))
+;;        (selected-corps (car corps))
+;;        (cards (caddr req))
+;;        (selected-cards (seq-take cards 3)))
+;;   (terraform-submit-response p1 (list selected-corps selected-cards)))
+
+;; (cadr terraform-pending-request)
+
 
 (provide 'terraform)
 

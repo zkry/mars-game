@@ -752,6 +752,14 @@
 ;;; Display
 ;; This page deals with composing the entire page.
 
+(defun tr--display-parameters ()
+  "Display game parameters."
+  (insert (format "Generation: %d   Ocean:%d/9   Temp:%s   O2:%s\n"
+                  (tr-game-state-generation tr-game-state)
+                  (tr-game-state-param-ocean tr-game-state)
+                  (tr-game-state-param-tempurature tr-game-state)
+                  (tr-game-state-param-oxygen tr-game-state))))
+
 (defun tr--display-player-panel ()
   "Display the player stats summary panels."
   (let ((panel-lines
@@ -842,7 +850,7 @@
                      (button-buttonize "Pass"
                                        (lambda (_)
                                          (tr-submit-response (car tr-pending-request)
-                                                             (list (list 'pass))))
+                                                             '((extra pass))))
                                        nil))))))
 
 (defun tr--display-standard-action-selection (actions)
@@ -874,6 +882,7 @@
   (with-current-buffer (get-buffer-create tr-main-buffer)
     (erase-buffer)
     (tr--display-board)
+    (tr--display-parameters)
     (tr--display-player-panel)
     (tr--display-action-selection)))
 
@@ -1018,17 +1027,30 @@
 
 ;; Turn order ---
 
+(defun tr-all-players-passed-p ()
+  (>= (length (tr-game-state-passed-players tr-game-state))
+      (length (tr-game-state-players tr-game-state))))
+
+(defun tr-!next-generation ()
+  (incf (tr-game-state-generation tr-game-state))
+  (incf (tr-game-state-passed-players tr-game-state) '())
+  ;; TODO: Rotate players
+  (tr->request tr-active-player (tr-actions-for tr-active-player)
+               #'tr-action-performed))
+
 (defun tr-!player-pass ()
   (let* ((active-player-id (tr-player-id tr-active-player))
          (next-player (tr-get-player-after tr-active-player)))
     (setf (tr-game-state-passed-players tr-game-state)
           (cons active-player-id
-                (tr-game-state-passed-players tr-game-state))))
-  (setq tr-active-player next-player) ;; TODO: set player's state to passed
-  (setq tr-action-no 0)
-  (tr->request player (tr-actions-for player)
-               #'tr-action-performed)
-  (throw 'ignore-action-step))
+                (tr-game-state-passed-players tr-game-state)))
+    (if (tr-all-players-passed-p)
+        (tr-!next-generation)
+      (setq tr-active-player next-player) ;; TODO: set player's state to passed
+      (setq tr-action-no 0)
+      (tr->request next-player (tr-actions-for next-player)
+                   #'tr-action-performed)))
+  (throw 'ignore-action-step nil))
 
 (defun tr-?all-players-ready () ;; TODO
   "Return non-nil if all players are ready to start the game."

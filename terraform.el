@@ -197,7 +197,7 @@
    :cost 13
    :type 'automated
    :tags '(power building)
-   :effect [(inc power-production 1) (inc-tempurature)]))
+   :effect [(inc energy-production 1) (inc-tempurature)]))
 (defconst tr--sample-card-4
   (tr-card-create
    :number 4
@@ -405,6 +405,7 @@
   param-tempurature
   param-oxygen
   generation
+  passed-players
   state)
 
 (defun tr--new-game-state (player-ct)
@@ -418,6 +419,7 @@
    :param-tempurature 0
    :param-oxygen 0
    :generation 1
+   :passed-players '()
    :deck (tr-sample-deck)
    :state 'start
    :corporation-deck (tr--sample-corporation-deck)))
@@ -806,19 +808,46 @@
 (defun tr--display-project-selection (project-ids)
   (insert "Select a Project:\n")
   (dolist (proj-id project-ids)
-    (insert "   " (format "%d" proj-id) "\n")))
+    (let* ((card (tr-card-by-id proj-id)))
+      (insert "   " (button-buttonize (format "[%2d] %s" (tr-card-cost card) (tr-card-name card))
+                                      (lambda (proj-id)
+                                        (tr-submit-response (car tr-pending-request)
+                                                            (list (list 'projects proj-id nil))))
+                                      proj-id)
+              "\n"))))
 
 (defun tr--display-standard-project-selection (standard-project-ids)
   (insert "Select a Standard Project:\n")
-  (dolist (proj-id standard-project-ids)
-    (insert "   " (format "%s" proj-id) "\n")))
+  (let ((project-costs '((power-plant . 11)
+                         (asteroid . 14)
+                         (aquifer . 18)
+                         (greenery . 23)
+                         (city . 25)
+                         (sell-patents . 0))))
+    (dolist (proj-id standard-project-ids)
+      (insert "   " (button-buttonize (format "[%2d] %s"
+                                              (alist-get proj-id project-costs)
+                                              proj-id)
+                                      (lambda (proj-id)
+                                        (tr-submit-response (car tr-pending-request)
+                                                            (list (list 'standard-projects proj-id))))
+                                      proj-id)
+              "\n"))))
 
 (defun tr--display-extra-selection (extras)
-  (insert "not implemented\n"))
+  (insert "Other Actions:\n")
+  (dolist (extra extras)
+    (pcase extra
+      ('pass (insert "   "
+                     (button-buttonize "Pass"
+                                       (lambda (_)
+                                         (tr-submit-response (car tr-pending-request)
+                                                             (list (list 'pass))))
+                                       nil))))))
 
 (defun tr--display-standard-action-selection (actions)
   "Display the standard action selection input."
-  
+  (insert (format "Action %d/2\n" (1+ tr-action-no)))
   (dolist (action actions)
     (insert "\n")
     (let* ((action-symbol (car action))
@@ -830,9 +859,6 @@
 
 ;; (cadr terraform-pending-request)
 
-(pcase '(test 1 2 4 4)
-  (`(test &rest ,a)
-   (list a b c d)))
 ;; (cadr terraform-pending-request)
 (defun tr--display-action-selection ()
   "Display the section asking user to make input."
@@ -887,9 +913,9 @@
 (defun tr-!play-in-front (project-id)
   "Move a card from the players hand to in front of them."
   (let* ((hand (tr-player-hand tr-active-player))
-         (card (seq-find (lambda (card) (= tr-card-number project-id)) hand))
+         (card (seq-find (lambda (card) (= (tr-card-number card) project-id)) hand))
          (new-hand (seq-remove
-                    (lambda (card) (= tr-card-number project-id))
+                    (lambda (card) (= (tr-card-number card) project-id))
                     hand))
          (played (tr-player-played tr-active-player)))
     (setf (tr-player-hand tr-active-player) new-hand)
@@ -988,23 +1014,21 @@
          (effect (tr-card-effect card)))
     (tr-!increment-user-resource 'money (- cost))
     (tr-!run-effect effect params)
-    (tr-!play-in-front project-id project-id)))
+    (tr-!play-in-front project-id)))
 
 ;; Turn order ---
 
-(defun tr-!next-player ()
-  ;; TODO
-  (setq tr-active-player tr-active-player) ; only one player now...
-  (setq tr-action-no 0))
-
-(defun tr-!step-turn ()
-  (if (= 0 tr-action-no)
-      (setq tr-action-no 1)
-    (tr-!next-player)))
-
 (defun tr-!player-pass ()
-  (setq tr-active-player tr-active-player) ;; TODO: set player's state to passed
-  (setq tr-action-no 0))
+  (let* ((active-player-id (tr-player-id tr-active-player))
+         (next-player (tr-get-player-after tr-active-player)))
+    (setf (tr-game-state-passed-players tr-game-state)
+          (cons active-player-id
+                (tr-game-state-passed-players tr-game-state))))
+  (setq tr-active-player next-player) ;; TODO: set player's state to passed
+  (setq tr-action-no 0)
+  (tr->request player (tr-actions-for player)
+               #'tr-action-performed)
+  (throw 'ignore-action-step))
 
 (defun tr-?all-players-ready () ;; TODO
   "Return non-nil if all players are ready to start the game."
@@ -1079,31 +1103,53 @@
             (standard-projects . ,(tr-standard-projects-for player))
             (extra . (pass)))))
 
+(defun tr-get-player-after (player)
+  ;; TODO: handle "passed" players
+  (catch 'done
+    (let* ((all-players (tr-game-state-players tr-game-state))
+           (i 0))
+      (while t
+        (when (eql (tr-player-id (nth i all-players))
+                   (tr-player-id player))
+          (throw 'done (nth (mod (1+ i) (length all-players))
+                            all-players)))))))
+
+(defun tr-action-step ()
+  (if (eql tr-action-no 0)
+      (progn
+        (setq tr-action-no 1))
+    (let ((next-player (tr-get-player-after tr-active-player)))
+      (setq tr-active-player next-player)
+      (setq tr-action-no 0)))
+  (tr->request tr-active-player (tr-actions-for tr-active-player)
+               #'tr-action-performed))
+
 ;; TODO: I don't like how the actions spec is all over the place...
 (defun tr-action-performed (player action)
   "Generic PLAYER action of specification ACTION"
-  (pcase action
-    (`(projects ,project-id ,params)
-     (tr-!run-project project-id params)
-     (tr-!step-turn))
-    (`(standard-projects power-plant)
-     (tr-!run-effect [(dec money 11) (inc energy-production 1)])
-     (tr-!step-turn))
-    (`(standard-projects asteroid)
-     (tr-!run-effect [(dec money 14) (inc-param tempurature 1)])
-     (tr-!step-turn))
-    (`(standard-projects aquifer ,location) ;; TODO change "location" to generic PARAMS
-     (tr-!run-effect [(dec money 18) (add-ocean)] (list location)))
-    (`(standard-projects greenery ,location) ;; TODO change "location" to generic PARAMS
-     (tr-!run-effect [(dec money 23) (add-greenery)] (list location)))
-    (`(standard-projects city ,location) ;; TODO change "location" to generic PARAMS
-     (tr-!run-effect [(dec money 25) (add-city)] (list location)))
-    (`(standard-projects sell-patents ,card-ids) ;; TODO change "cards" to generic PARAMS
-     (tr-!discard-cards card-ids)
-     (tr-!increment-user-resource 'money (length card-ids)))
-    (`(extra pass)
-     (tr-!player-pass))
-    (t (error "Invalid action response %s" action))))
+  (catch 'ignore-action-step
+    (pcase action
+      (`(projects ,project-id ,params)
+       (tr-!run-project project-id params))
+      (`(standard-projects power-plant)
+       (tr-!run-effect [(dec money 11) (inc energy-production 1)]))
+      (`(standard-projects asteroid)
+       (tr-!run-effect [(dec money 14) (inc-param tempurature 1)]))
+      (`(standard-projects aquifer ,location) ;; TODO change "location" to generic PARAMS
+       (tr-!run-effect [(dec money 18) (add-ocean)] (list location)))
+      (`(standard-projects greenery ,location) ;; TODO change "location" to generic PARAMS
+       (tr-!run-effect [(dec money 23) (add-greenery)] (list location)))
+      (`(standard-projects city ,location) ;; TODO change "location" to generic PARAMS
+       (tr-!run-effect [(dec money 25) (add-city)] (list location)))
+      (`(standard-projects sell-patents ,card-ids) ;; TODO change "cards" to generic PARAMS
+       (tr-!discard-cards card-ids)
+       (tr-!increment-user-resource 'money (length card-ids)))
+      (`(extra pass)
+       (tr-!player-pass))
+      (_ (error "Invalid action response %s" action)))
+    (tr-action-step)
+    (tr->request player (tr-actions-for player)
+                 #'tr-action-performed)))
 
 (defun tr-!corporation-selected (player selected-corp selected-cards) ;; TODO: change name
   "Action to make initial selection of PLAYER for SELECTED-CORP and SELECTED-CARDS."
@@ -1137,7 +1183,7 @@
     (error "No request to submit response for"))
   (seq-let (_player _action callback) tr-pending-request
     (apply callback (cons player response))
-    ))
+    (tr-display-board)))
 
 (defun tr-run ()
   "Demo command to run game."
@@ -1156,20 +1202,21 @@
 
 ;;; DEMO SETUP
 
-;; (terraform-run)
+(terraform-run)
 
-;; (cadr terraform-pending-request)
+(cadr terraform-pending-request)
 
-;; (let* ((p1 (car (terraform-game-state-players terraform-game-state)))
-;;        (req (cadr terraform-pending-request))
-;;        (corps (cadr req))
-;;        (selected-corps (car corps))
-;;        (cards (caddr req))
-;;        (selected-cards (seq-take cards 3)))
-;;   (terraform-submit-response p1 (list selected-corps selected-cards)))
+(let* ((p1 (car (terraform-game-state-players terraform-game-state)))
+       (req (cadr terraform-pending-request))
+       (corps (cadr req))
+       (selected-corps (car corps))
+       (cards (caddr req))
+       (selected-cards (seq-take cards 3)))
+  (terraform-submit-response p1 (list selected-corps selected-cards)))
 
-;; (cadr terraform-pending-request)
+(cadr terraform-pending-request)
 
+(tr-player-hand (car tr-pending-request))
 
 (provide 'terraform)
 

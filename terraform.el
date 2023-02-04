@@ -172,6 +172,10 @@
   effect)
 
 (defconst tr--sample-card-1
+  ;; TODO - Requirements for cards
+  ;; TODO - Display requirements for cards
+  ;; TODO - Global parameter requirement O2
+  ;; TODO - Figure out card tags
   (tr-card-create
    :number 1
    :name "Colonizer Training Camp"
@@ -181,6 +185,7 @@
    :victory-points 2
    :type 'automated))
 (defconst tr--sample-card-2
+  ;; TODO - Global parameter requirement production
   (tr-card-create
    :number 2
    :name "Asteroid Mining Consortium"
@@ -197,7 +202,7 @@
    :cost 13
    :type 'automated
    :tags '(power building)
-   :effect [(inc energy-production 1) (inc-tempurature)]))
+   :effect [(inc-tempurature) (inc energy-production 1)]))
 (defconst tr--sample-card-4
   (tr-card-create
    :number 4
@@ -216,11 +221,9 @@
    :victory-points '(* resource 3)
    :requirements '(<= oxygen 6)
    :type 'automated
-   :action (lambda (player)
-             (let ((top-card (tr-take-card)))
-               (when (tr-card-has-tag top-card 'microbe)
-                 (tr-card-add-resource top-card))
-               (tr-payment player 1)))))
+   :action '[(-> (dec money 1)
+                 (action "MICR.*:SCI"
+                         (lambda ())))]))
 (defconst tr--sample-card-6
   (tr-card-create
    :number 6
@@ -228,7 +231,9 @@
    :cost 9
    :type 'active
    :tags '(science)
-   :action (lambda (player) (tr-player-draw-card-keep-some player 1 'paying))))
+   :action '[(-> nil
+                 (action "Look at top card, buy or discard"
+                         (lambda ())))]))
 (defconst tr--sample-card-7
   (tr-card-create
    :number 7
@@ -236,9 +241,8 @@
    :cost 13
    :type 'active
    :tags '(building)
-   :action (lambda (player)
-             (tr-player-spend player 'energy 1)
-             (tr-player-gain player 'money (tr-cities-on-mars)))))
+   :action '[(-> (dec energy 1)
+                 (inc-per money every-city))]))
 (defconst tr--sample-card-8
   (tr-card-create
    :number 8
@@ -287,9 +291,32 @@
    :cost 25
    :type 'active
    :tags '(space jovian)
-   :action (lambda (player)
-             (tr-player-pay player 12 'titanium)
-             (tr-add-ocean))))
+   :action '[(-> (buy titanium 12)
+                 (add-ocean))]
+   :victory-points (lambda () (error "not implemented"))))
+(defconst tr--sample-card-13
+  (tr-card-create
+   :number 13
+   :name "Space Elevator"
+   :type 'active
+   :action '[(-> (dec steel 1)
+                 (inc money 5))]
+   :effect [(inc titanium-production 1)]
+   :victory-points 2))
+(defconst tr--sample-card-14
+  (tr-card-create
+   :number 14
+   :name "Development Center"
+   :type 'active
+   :action '[(-> (dec energy 1)
+                 (draw-project 1))]))
+(defconst tr--sample-card-15
+  (tr-card-create
+   :number 15
+   :name "Equatorial Magnetizer"
+   :type 'active
+   :action '[(-> (dec energy-production 1)
+                 (draw-project 1))]))
 
 (defconst tr-all-cards
   (list tr--sample-card-1
@@ -372,6 +399,77 @@
   (list tr--sample-corp-1 tr--sample-corp-2 tr--sample-corp-3 tr--sample-corp-4 tr--sample-corp-5))
 
 ;; (tr--sample-corporation-deck)
+
+
+
+;;; Generic Functions
+
+(defun tr-resource-type-to-string (type)
+  (pcase type
+    ('money-production (tr--char->prod tr--money-char))
+    ('money tr--money-char)
+    ('plant-production (tr--char->prod tr--plant-char))
+    ('plant tr--plant-char)
+    ('steel-production (tr--char->prod tr--steel-char))
+    ('steel tr--steel-char)
+    ('titanium-production (tr--char->prod tr--titanium-char))
+    ('titanium tr--titanium-char)
+    ('energy-production (tr--char->prod tr--energy-char))
+    ('energy tr--energy-char)
+    ('heat-production (tr--char->prod tr--heat-char))
+    ('heat tr--heat-char)
+    (_ "?")))
+
+(defun tr-effect-to-string (clause)
+  "Convert a card effect data description to a string."
+  (pcase clause
+    ('() "")
+    (`(inc ,resource ,amt)
+     (format "+%d%s" amt (tr-resource-type-to-string resource)))
+    (`(dec ,resource ,amt)
+     (format "-%d%s" amt (tr-resource-type-to-string resource)))
+    (`(dec-other ,resource ,amt)
+     (format "-%d%s" amt (tr--char->decrease-any (tr-resource-type-to-string resource))))
+    (`(inc-tempurature)
+     "℃")
+    (`(add-ocean)
+     "+H₂O")
+    (`(-> ,cost ,action)
+     (format "%s%s%s"
+             (tr-effect-to-string cost)
+             tr--action-arrow
+             (tr-effect-to-string action)))
+    (`(action ,disp ,_)
+     disp)
+    (_ (format "%s" clause))))
+
+(defun tr-effects-to-string (effect)
+  "Convert a card effect data description to a string."
+  (string-join
+   (seq-map
+    (lambda (clause)
+      (tr-effect-to-string clause))
+    effect)
+   "; "))
+
+(cl-defgeneric tr-line-string (item)
+  (:documentation "Display item on a single line."))
+
+(cl-defmethod tr-line-string ((item tr-card))
+  (let* ((card-type (tr-card-type item))
+         (card-face (pcase card-type
+                      ('active 'tr-active-face)
+                      ('automated 'tr-automated-face)
+                      ('event 'tr-event-face)))
+         (card-name (propertize (tr-card-name item) 'font-lock-face card-face)))
+    (format "$%2d %s %s %s"
+            (tr-card-cost item)
+            card-name
+            (tr-effects-to-string (tr-card-effect item))
+            (tr-effects-to-string (tr-card-action item)))))
+
+(cl-defmethod tr-line-string ((item tr-corporation))
+  (format "(c) %s" item))
 
 
 
@@ -473,7 +571,7 @@
 ;; resources 
 (defface tr-money-face
   '((t :foreground "#060500"
-       :background "#FFC700"))
+       :background "#F7E11C"))
   "Face for money face."
   :group 'terraform)
 
@@ -507,6 +605,30 @@
   "Face for heat resource."
   :group 'terraform)
 
+;; Project faces
+
+(defface tr-event-face
+  '((t :background "#D98A5A"
+       :foreground "#000000"))
+  "Face for event-type projects."
+  :group 'terraform)
+
+(defface tr-automated-face
+  '((t :background "#57A257"
+       :foreground "#000000"))
+  "Face for automated-type projects."
+  :group 'terraform)
+
+(defface tr-active-face
+  '((t :background "#5D9DD3"
+       :foreground "#000000"))
+  "Face for automated-type projects."
+  :group 'terraform)
+
+;; TODO: figure out how to add box faces
+;; :box (:line-width (3 . 3)
+;;             :color "brown")
+
 (defconst tr--tree-char "♠")
 (defconst tr--city-char "#")
 
@@ -517,6 +639,23 @@
 (defconst tr--plant-char (propertize "☘" 'font-lock-face 'tr-plant-face))
 (defconst tr--energy-char (propertize "↯" 'font-lock-face 'tr-energy-face))
 (defconst tr--heat-char (propertize "≋" 'font-lock-face 'tr-heat-face))
+
+(defconst tr--action-arrow (propertize "→" 'font-lock-face '(:foreground "red" :weight bold) ))
+
+(defun tr--char->decrease-any (char)
+  "Add properties to CHAR to make it indicate production."
+  (propertize char 'font-lock-face
+              (list
+               '(:foreground "red")
+               (get-text-property 0 'font-lock-face char))))
+
+(defun tr--char->prod (char)
+  "Add properties to CHAR to make it indicate production."
+  (propertize char 'font-lock-face
+              (list
+               '(:box (:line-width (3 . 3)
+                                   :color "brown"))
+               (get-text-property 0 'font-lock-face char))))
 
 (defconst tr--player1-token (propertize " " 'font-lock-face 'tr-player1-face))
 (defconst tr--player2-token (propertize " " 'font-lock-face 'tr-player2-face))
@@ -749,6 +888,38 @@
             (insert "\n")))))))
 
 
+;;; Selection Engine
+
+(defun tr--selection-items (items)
+  (let* ((type (car items)))
+    (pcase type
+      ('and
+       (let ((rest (cdr items)))
+         (dolist (item rest)
+           (tr--selection-items item)
+           (insert "\n"))))
+      ('selection
+       (let* ((props (cdr items))
+              (title (plist-get props :title))
+              (items (plist-get props :items))
+              (type (plist-get props :type)))
+         (insert title "\n")
+         (dolist (item items)
+           (cond
+            ((eql type 'one)
+             (insert " - ( ) " (tr-line-string item) "\n"))
+            ((eql type 'multiple)
+             (insert " - [ ] " (tr-line-string item) "\n"))))
+         ))
+      )))
+
+(cl-defun tr-selection (&key title items validation on-confirm)
+  (insert title "\n")
+  (tr--selection-items items)
+  )
+
+
+
 ;;; Display
 ;; This page deals with composing the entire page.
 
@@ -865,7 +1036,24 @@
         ('standard-projects (tr--display-standard-project-selection action-params))
         ('extra (tr--display-extra-selection action-params))))))
 
-;; (cadr terraform-pending-request)
+(defun tr--select-starting-cards-selection (corps projects)
+  ""
+  (tr-selection
+   :title "Select Starting Cards"
+   :items `(and
+            (selection :title "Corporation"
+                       :items ,corps
+                       :type one)
+            (selection :title "Projects"
+                       :items ,projects
+                       :type multiple))
+   :validation (lambda (corps projects)
+                 ;; TODO: confirm costs...
+                 )
+   :on-confirm (lambda (corp projects)
+                 (terraform-submit-response
+                  tr-active-player
+                  (list corp projects)))))
 
 ;; (cadr terraform-pending-request)
 (defun tr--display-action-selection ()
@@ -873,7 +1061,9 @@
   (let* ((request (cadr terraform-pending-request)))
     (pcase request
       (`(action ,actions)
-       (tr--display-standard-action-selection actions)))))
+       (tr--display-standard-action-selection actions))
+      (`(select-starting-cards ,corps ,cards)
+       (tr--select-starting-cards-selection corps cards)))))
 
 (defconst tr-main-buffer "*terraforming*") ;; TODO: support multiple instances of the game
 
@@ -1032,8 +1222,8 @@
       (length (tr-game-state-players tr-game-state))))
 
 (defun tr-!next-generation ()
-  (incf (tr-game-state-generation tr-game-state))
-  (incf (tr-game-state-passed-players tr-game-state) '())
+  (cl-incf (tr-game-state-generation tr-game-state))
+  (setf (tr-game-state-passed-players tr-game-state) '())
   ;; TODO: Rotate players
   (tr->request tr-active-player (tr-actions-for tr-active-player)
                #'tr-action-performed))
@@ -1228,17 +1418,17 @@
 
 (cadr terraform-pending-request)
 
-(let* ((p1 (car (terraform-game-state-players terraform-game-state)))
-       (req (cadr terraform-pending-request))
-       (corps (cadr req))
-       (selected-corps (car corps))
-       (cards (caddr req))
-       (selected-cards (seq-take cards 3)))
-  (terraform-submit-response p1 (list selected-corps selected-cards)))
+;; (let* ((p1 (car (terraform-game-state-players terraform-game-state)))
+;;        (req (cadr terraform-pending-request))
+;;        (corps (cadr req))
+;;        (selected-corps (car corps))
+;;        (cards (caddr req))
+;;        (selected-cards (seq-take cards 3)))
+;;   (terraform-submit-response p1 (list selected-corps selected-cards)))
 
-(cadr terraform-pending-request)
+;; (cadr terraform-pending-request)
 
-(tr-player-hand (car tr-pending-request))
+;; (tr-player-hand (car tr-pending-request))
 
 (provide 'terraform)
 

@@ -469,8 +469,7 @@
             (tr-effects-to-string (tr-card-action item)))))
 
 (cl-defmethod tr-line-string ((item tr-corporation))
-  (format "(c) %s" item))
-
+  (format "%s %s" (tr-corporation-name item) (tr-effects-to-string (tr-corporation-effect item))))
 
 
 ;;; Game State
@@ -889,15 +888,23 @@
 
 
 ;;; Selection Engine
+(defvar-local tr-current-selection nil)
+(defvar-local tr-selection-spec nil)
 
-(defun tr--selection-items (items)
+(defun tr--process-selection (idx item)
+  (let* ((slot-spec (cdr (aref (plist-get tr-selection-spec :items) idx)))
+         (slot-type (plist-get slot-spec :type)))
+    (pcase slot-type
+      ('one
+       (setf (nth idx tr-current-selection)
+             item))
+      ('multiple
+       (setf (nth idx tr-current-selection)
+             (cons item (nth idx tr-current-selection)))))))
+
+(defun tr--selection-items (field-idx items)
   (let* ((type (car items)))
     (pcase type
-      ('and
-       (let ((rest (cdr items)))
-         (dolist (item rest)
-           (tr--selection-items item)
-           (insert "\n"))))
       ('selection
        (let* ((props (cdr items))
               (title (plist-get props :title))
@@ -905,18 +912,44 @@
               (type (plist-get props :type)))
          (insert title "\n")
          (dolist (item items)
-           (cond
-            ((eql type 'one)
-             (insert " - ( ) " (tr-line-string item) "\n"))
-            ((eql type 'multiple)
-             (insert " - [ ] " (tr-line-string item) "\n"))))
-         ))
-      )))
+           (pcase type
+             ('one
+              (insert " - "
+                      (buttonize (format
+                                  "(%s)"
+                                  (if (equal item (nth field-idx tr-current-selection))
+                                      "x"
+                                    " "))
+                                 (pcase-lambda (`(,idx ,item))
+                                   (tr--process-selection idx item)
+                                   (terraform-display-board))
+                                 (list field-idx item))
+                      (tr-line-string item) "\n"))
+             ('multiple
+              (insert " - "
+                      (buttonize (format
+                                  "[%s]"
+                                  (if (member item (nth field-idx tr-current-selection))
+                                      "x"
+                                    " "))
+                                 (pcase-lambda (`(,idx ,item))
+                                   (tr--process-selection idx item))
+                                 (list field-idx item))
+                      (tr-line-string item) "\n")))
+           ))))))
 
 (cl-defun tr-selection (&key title items validation on-confirm)
   (insert title "\n")
-  (tr--selection-items items)
-  )
+  (let ((i 0))
+    (seq-do (lambda (item)
+              (tr--selection-items i item)
+              (cl-incf i))
+            items))
+  (setq tr-selection-spec
+        (list :items items
+              :validation validation
+              :on-confirm on-confirm))
+  (setq tr-current-selection (make-list (length items) nil)))
 
 
 
@@ -1040,13 +1073,12 @@
   ""
   (tr-selection
    :title "Select Starting Cards"
-   :items `(and
-            (selection :title "Corporation"
+   :items `[(selection :title "Corporation"
                        :items ,corps
                        :type one)
             (selection :title "Projects"
                        :items ,projects
-                       :type multiple))
+                       :type multiple)]
    :validation (lambda (corps projects)
                  ;; TODO: confirm costs...
                  )

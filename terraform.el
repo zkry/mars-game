@@ -899,8 +899,11 @@
        (setf (nth idx tr-current-selection)
              item))
       ('multiple
-       (setf (nth idx tr-current-selection)
-             (cons item (nth idx tr-current-selection)))))))
+       (if (not (member item (nth idx tr-current-selection)))
+         (setf (nth idx tr-current-selection)
+               (cons item (nth idx tr-current-selection)))
+         (setf (nth idx tr-current-selection)
+               (remove item (nth idx tr-current-selection))))))))
 
 (defun tr--selection-items (field-idx items)
   (let* ((type (car items)))
@@ -922,7 +925,7 @@
                                     " "))
                                  (pcase-lambda (`(,idx ,item))
                                    (tr--process-selection idx item)
-                                   (terraform-display-board))
+                                   (tr-display-board)) ;; Should display board call be here?
                                  (list field-idx item))
                       (tr-line-string item) "\n"))
              ('multiple
@@ -933,7 +936,8 @@
                                       "x"
                                     " "))
                                  (pcase-lambda (`(,idx ,item))
-                                   (tr--process-selection idx item))
+                                   (tr--process-selection idx item)
+                                   (terraform-display-board))
                                  (list field-idx item))
                       (tr-line-string item) "\n")))
            ))))))
@@ -945,11 +949,24 @@
               (tr--selection-items i item)
               (cl-incf i))
             items))
-  (setq tr-selection-spec
-        (list :items items
-              :validation validation
-              :on-confirm on-confirm))
-  (setq tr-current-selection (make-list (length items) nil)))
+  (pcase-let* ((passing-types '(warn info))
+               (`(,type ,msg) (apply validation tr-current-selection)))
+    (pcase type
+      ('quiet-error nil)
+      ('error (setq msg (propertize msg 'font-lock-face 'error)))
+      ('warn (setq msg (propertize msg 'font-lock-face 'warning)))
+      ('info nil))
+    (insert "\n" msg "\n")
+    (when (memq type passing-types)
+      (insert (buttonize "[confirm selection]"
+                         (lambda (_)
+                           (apply on-confirm tr-current-selection))))))
+  (when (not tr-selection-spec)
+    (setq tr-selection-spec
+          (list :items items
+                :validation validation
+                :on-confirm on-confirm))
+    (setq tr-current-selection (make-list (length items) nil))))
 
 
 
@@ -1021,11 +1038,13 @@
   (insert "Select a Project:\n")
   (dolist (proj-id project-ids)
     (let* ((card (tr-card-by-id proj-id)))
-      (insert "   " (button-buttonize (format "[%2d] %s" (tr-card-cost card) (tr-card-name card))
+      (insert "   " (button-buttonize "[ ]"
                                       (lambda (proj-id)
                                         (tr-submit-response (car tr-pending-request)
                                                             (list (list 'projects proj-id nil))))
                                       proj-id)
+              " "
+              (tr-line-string card)
               "\n"))))
 
 (defun tr--display-standard-project-selection (standard-project-ids)
@@ -1079,11 +1098,23 @@
             (selection :title "Projects"
                        :items ,projects
                        :type multiple)]
-   :validation (lambda (corps projects)
+   :validation (lambda (corp projects)
                  ;; TODO: confirm costs...
-                 )
+                 (cond
+                  ((and (not corp) (not projects))
+                   '(quiet-error "Select corporation and project."))
+                  ((not corp)
+                   '(error "Select corporation"))
+                  ((not projects)
+                   '(warn "No projects selected"))
+                  (t
+                   (let* ((proj-count (length projects))
+                          (msg (format "%d project(s) selected. Cost: $%d. Remaining:"
+                                       proj-count
+                                       (* proj-count 3))))
+                     (list 'info msg)))))
    :on-confirm (lambda (corp projects)
-                 (terraform-submit-response
+                 (tr-submit-response
                   tr-active-player
                   (list corp projects)))))
 
@@ -1256,6 +1287,7 @@
 (defun tr-!next-generation ()
   (cl-incf (tr-game-state-generation tr-game-state))
   (setf (tr-game-state-passed-players tr-game-state) '())
+  ;; TODO: Generation and card selection
   ;; TODO: Rotate players
   (tr->request tr-active-player (tr-actions-for tr-active-player)
                #'tr-action-performed))
@@ -1371,6 +1403,8 @@
 ;; TODO: I don't like how the actions spec is all over the place...
 (defun tr-action-performed (player action)
   "Generic PLAYER action of specification ACTION"
+  (unless (tr-player-p player)
+    (error "Invalid type (terraform-player-p %s)" player))
   (catch 'ignore-action-step
     (pcase action
       (`(projects ,project-id ,params)
@@ -1391,9 +1425,7 @@
       (`(extra pass)
        (tr-!player-pass))
       (_ (error "Invalid action response %s" action)))
-    (tr-action-step)
-    (tr->request player (tr-actions-for player)
-                 #'tr-action-performed)))
+    (tr-action-step)))
 
 (defun tr-!corporation-selected (player selected-corp selected-cards) ;; TODO: change name
   "Action to make initial selection of PLAYER for SELECTED-CORP and SELECTED-CARDS."
@@ -1421,13 +1453,17 @@
 (defun tr->request (player action callback)
   (setq tr-pending-request (list player action callback)))
 
-(defun tr-submit-response (player response) ;; TODO: do we really need to pass the player here?
+(defun tr-submit-response (_player response) ;; TODO: do we really need to pass the player here?
   "Submit RESPONSE for PLAYER."
   (unless tr-pending-request
     (error "No request to submit response for"))
-  (seq-let (_player _action callback) tr-pending-request
+  (seq-let (player _action callback) tr-pending-request
     (apply callback (cons player response))
     (tr-display-board)))
+
+(defun tr-reset-game-state ()
+  ;; TODO 
+  (error "not implemented"))
 
 (defun tr-run ()
   "Demo command to run game."

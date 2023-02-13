@@ -443,6 +443,30 @@
      disp)
     (_ (format "%s" clause))))
 
+(defun tr-requirements-to-string (requirements)
+  (if (not requirements)
+      ""
+    (pcase-let*
+        ((`(,cmp ,left ,right) requirements)
+         (left-str
+          (pcase left
+            ('ocean "🌊")
+            ('titanium-production
+             (tr--char->prod tr--titanium-char))
+            ('oxygen "O₂")
+            (_ (error "undefined left %s" left))))
+         (cmp-str
+          (pcase cmp
+            ('>= "≥")
+            ('> ">")
+            ('<= "≤")
+            ('< "<")
+            (_ (error "undefined comparator %s" cmp)))))
+      (format "%s%s%d"
+              left-str
+              cmp-str
+              right))))
+
 (defun tr-effects-to-string (effect)
   "Convert a card effect data description to a string."
   (string-join
@@ -462,8 +486,9 @@
                       ('automated 'tr-automated-face)
                       ('event 'tr-event-face)))
          (card-name (propertize (tr-card-name item) 'font-lock-face card-face)))
-    (format "$%2d %s %s %s"
+    (format "$%2d %8s %s %s %s"
             (tr-card-cost item)
+            (tr-requirements-to-string (tr-card-requirements item))
             card-name
             (tr-effects-to-string (tr-card-effect item))
             (tr-effects-to-string (tr-card-action item)))))

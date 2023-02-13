@@ -943,6 +943,12 @@
            ))))))
 
 (cl-defun tr-selection (&key title items validation on-confirm)
+  (when (not tr-selection-spec)
+    (setq tr-selection-spec
+          (list :items items
+                :validation validation
+                :on-confirm on-confirm))
+    (setq tr-current-selection (make-list (length items) nil)))
   (insert title "\n")
   (let ((i 0))
     (seq-do (lambda (item)
@@ -960,13 +966,9 @@
     (when (memq type passing-types)
       (insert (buttonize "[confirm selection]"
                          (lambda (_)
-                           (apply on-confirm tr-current-selection))))))
-  (when (not tr-selection-spec)
-    (setq tr-selection-spec
-          (list :items items
-                :validation validation
-                :on-confirm on-confirm))
-    (setq tr-current-selection (make-list (length items) nil))))
+                           (apply on-confirm tr-current-selection)
+                           (setq tr-selection-spec nil
+                                 tr-current-selection nil)))))))
 
 
 
@@ -1118,6 +1120,18 @@
                   tr-active-player
                   (list corp projects)))))
 
+(defun tr--select-research-cards (projects)
+  (tr-selection
+   :title "Select Research Cards"
+   :items `[(selection :title "Projects"
+                       :items ,projects
+                       :type multiple)]
+   :validation (lambda (projects)
+                 "Good try")
+   :on-confirm (lambda (projects)
+                 ;;  TODO
+                 )))
+
 ;; (cadr terraform-pending-request)
 (defun tr--display-action-selection ()
   "Display the section asking user to make input."
@@ -1126,7 +1140,9 @@
       (`(action ,actions)
        (tr--display-standard-action-selection actions))
       (`(select-starting-cards ,corps ,cards)
-       (tr--select-starting-cards-selection corps cards)))))
+       (tr--select-starting-cards-selection corps cards))
+      (`(select-research-cards ,cards)
+       (tr--select-research-cards cards)))))
 
 (defconst tr-main-buffer "*terraforming*") ;; TODO: support multiple instances of the game
 
@@ -1159,7 +1175,7 @@
     top-two))
 
 (defun tr-!draw-cards (n)
-  ""
+  "Return N cards from the top of the deck.  Cards are removed from the deck."
   (let* ((deck (tr-game-state-deck tr-game-state))
          (top (seq-take deck n)))
     (setf (tr-game-state-corporation-deck tr-game-state) (seq-drop deck n))
@@ -1284,13 +1300,32 @@
   (>= (length (tr-game-state-passed-players tr-game-state))
       (length (tr-game-state-players tr-game-state))))
 
+(defun tr-player-generation (player)
+  (let ((rating (tr-player-rating player))
+        (money-prod (tr-player-money-production player))
+        (steel-prod (tr-player-steel-production player))
+        (titanium-prod (tr-player-titanium-production player))
+        (plant-prod (tr-player-plant-production player))
+        (energy-prod (tr-player-energy-production player))
+        (energy (tr-player-energy player))
+        (heat-prod (tr-player-heat-production player)))
+    (cl-incf (tr-player-money player) (+ money-prod rating))
+    (cl-incf (tr-player-steel player) steel-prod)
+    (cl-incf (tr-player-titanium player) titanium-prod)
+    (cl-incf (tr-player-plant player) plant-prod)
+    (setf (tr-player-energy player) energy-prod)
+    (cl-incf (tr-player-heat player) (+ heat-prod energy))))
+
 (defun tr-!next-generation ()
   (cl-incf (tr-game-state-generation tr-game-state))
   (setf (tr-game-state-passed-players tr-game-state) '())
-  ;; TODO: Generation and card selection
+  (dolist (player (tr-game-state-players tr-game-state))
+    (tr-player-generation player))
   ;; TODO: Rotate players
-  (tr->request tr-active-player (tr-actions-for tr-active-player)
-               #'tr-action-performed))
+  (let* ((cards (tr-!draw-cards 4)))
+    (tr->request tr-active-player
+                 `(select-research-cards ,cards)
+                 #'tr-action-performed)))
 
 (defun tr-!player-pass ()
   (let* ((active-player-id (tr-player-id tr-active-player))
@@ -1469,6 +1504,9 @@
   "Demo command to run game."
   (unless tr-game-state
     (error "No initialized game state"))
+  (setq tr-selection-spec nil
+        tr-current-selection nil)
+  (setq tr-game-state (tr--new-game-state 1))
   (dolist (player (tr-game-state-players tr-game-state))
     (let ((corps (tr-!draw-corporations))
           (cards (tr-!draw-cards 10)))

@@ -222,7 +222,7 @@
    :requirements '(<= oxygen 6)
    :type 'automated
    :action '[(-> (dec money 1)
-                 (action "MICR.*:SCI"
+                 (action "🦠*:SCI"
                          (lambda ())))]))
 (defconst tr--sample-card-6
   (tr-card-create
@@ -318,6 +318,33 @@
    :action '[(-> (dec energy-production 1)
                  (draw-project 1))]))
 
+(defvar tr--standard-projects
+  '((tr-card-create
+     :name "Power Plant"
+     :type 'event
+     :cost 11
+     :effect '[(inc energy-production)])
+    (tr-card-create
+     :name "Asteroid"
+     :type 'event
+     :cost 14
+     :effect [(inc-tempurature)])
+    (tr-card-create
+     :name "Aquifer"
+     :type 'event
+     :cost 18
+     :effect [(add-ocean)])
+    (tr-card-create
+     :name "Greenery"
+     :type 'event
+     :cost 23
+     :effect [(add-greenery)])
+    (tr-card-create
+     :name "City"
+     :type 'event
+     :cost 25
+     :effect [(add-city)])))
+
 (defconst tr-all-cards
   (list tr--sample-card-1
         tr--sample-card-2
@@ -398,7 +425,18 @@
 (defun tr--sample-corporation-deck ()
   (list tr--sample-corp-1 tr--sample-corp-2 tr--sample-corp-3 tr--sample-corp-4 tr--sample-corp-5))
 
-;; (tr--sample-corporation-deck)
+(defun tr--extract-action (effect)
+  "Return extra parameter required from a specific action."
+  (pcase (car effect)
+    ('add-ocean 'empty-ocean)
+    ('add-city 'standard-city-placement)
+    ('add-greenery 'standard-greenery-placement)
+    ('or effect)
+    (_ nil)))
+
+(defun tr--extract-card-actions (card)
+  (let* ((effects (tr-card-effect card)))
+    (seq-filter #'identity (seq-map #'tr--extract-action effects))))
 
 
 
@@ -486,7 +524,7 @@
                       ('automated 'tr-automated-face)
                       ('event 'tr-event-face)))
          (card-name (propertize (tr-card-name item) 'font-lock-face card-face)))
-    (format "$%2d %8s %s %s %s"
+    (format "$%2d %5s %s %s %s"
             (tr-card-cost item)
             (tr-requirements-to-string (tr-card-requirements item))
             card-name
@@ -1066,10 +1104,14 @@
   (dolist (proj-id project-ids)
     (let* ((card (tr-card-by-id proj-id)))
       (insert "   " (button-buttonize "[ ]"
-                                      (lambda (proj-id)
-                                        (tr-submit-response (car tr-pending-request)
-                                                            (list (list 'projects proj-id nil))))
-                                      proj-id)
+                                      (lambda (card)
+                                        (tr-get-args
+                                         (tr--extract-card-actions card)
+                                         (lambda (args)
+                                           (tr-submit-response (car tr-pending-request)
+                                                               (list (list 'projects
+                                                                           (tr-card-number card) args))))))
+                                      card)
               " "
               (tr-line-string card)
               "\n"))))
@@ -1191,6 +1233,11 @@
 (defvar tr-pending-request nil)
 (defvar tr-active-player nil)
 (defvar tr-action-no nil)
+
+(defvar tr-pending-arg-request nil)
+
+(defun tr-get-args (actions callback)
+  )
 
 (defun tr-!draw-corporations ()
   ""

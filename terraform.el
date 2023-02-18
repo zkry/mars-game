@@ -86,6 +86,10 @@
   "return the gameboard tile at pt."
   (gethash pt (tr-gameboard-board (tr-game-state-gameboard tr-game-state))))
 
+(defun tr--tile-empty-ocean-p (tile)
+  (and (not (plist-get tile :top))
+       (eql (plist-get tile :type) 'ocean)))
+
 (cl-defstruct (tr-gameboard (:constructor tr-gameboard-create)
                             (:copier nil))
   board
@@ -220,7 +224,7 @@
    :tags '(science)
    :victory-points '(* resource 3)
    :requirements '(<= oxygen 6)
-   :type 'automated
+   :type 'active
    :action '[(-> (dec money 1)
                  (action "🦠*:SCI"
                          (lambda ())))]))
@@ -297,6 +301,7 @@
 (defconst tr--sample-card-13
   (tr-card-create
    :number 13
+   :cost  27
    :name "Space Elevator"
    :type 'active
    :action '[(-> (dec steel 1)
@@ -306,6 +311,7 @@
 (defconst tr--sample-card-14
   (tr-card-create
    :number 14
+   :cost 11
    :name "Development Center"
    :type 'active
    :action '[(-> (dec energy 1)
@@ -315,35 +321,51 @@
    :number 15
    :name "Equatorial Magnetizer"
    :type 'active
+   :cost 11
    :action '[(-> (dec energy-production 1)
-                 (draw-project 1))]))
+                 (inc rating 1))]))
+(defconst tr--sample-card-16
+  (tr-card-create
+   :number 15
+   :name "Domed Crater"
+   :type 'automated
+   :requirements `(<= oxygen 7)
+   :effect [(dec energy-production 1)
+            (inc money-production 3)
+            (add-city)
+            (inc plant 3)]))
 
-(defvar tr--standard-projects
-  '((tr-card-create
-     :name "Power Plant"
-     :type 'event
-     :cost 11
-     :effect '[(inc energy-production)])
-    (tr-card-create
-     :name "Asteroid"
-     :type 'event
-     :cost 14
-     :effect [(inc-tempurature)])
-    (tr-card-create
-     :name "Aquifer"
-     :type 'event
-     :cost 18
-     :effect [(add-ocean)])
-    (tr-card-create
-     :name "Greenery"
-     :type 'event
-     :cost 23
-     :effect [(add-greenery)])
-    (tr-card-create
-     :name "City"
-     :type 'event
-     :cost 25
-     :effect [(add-city)])))
+(defconst tr--standard-projects
+  `(,(tr-card-create
+      :number 'power-plant
+      :name "Power Plant"
+      :type 'event
+      :cost 11
+      :effect '[(inc energy-production)])
+    ,(tr-card-create
+      :number 'asteroid
+      :name "Asteroid"
+      :type 'event
+      :cost 14
+      :effect [(inc-tempurature)])
+    ,(tr-card-create
+      :number 'aquifer
+      :name "Aquifer"
+      :type 'event
+      :cost 18
+      :effect [(add-ocean)])
+    ,(tr-card-create
+      :name "Greenery"
+      :number 'greenery
+      :type 'event
+      :cost 23
+      :effect [(add-greenery)])
+    ,(tr-card-create
+      :name "City"
+      :number 'city
+      :type 'event
+      :cost 25
+      :effect [(add-city)])))
 
 (defconst tr-all-cards
   (list tr--sample-card-1
@@ -737,8 +759,7 @@
     (city . (:border '(" ### " "-" "-" "-" "-" "-" "-" "-")
                      :face tr-city-face
                      :top-line '(" #" owner "# ")
-                     :bottom-line " ### "))
-    ))
+                     :bottom-line " ### "))))
 
 (defun tr--format-edge (pt1 pt2 edge-char)
   "Return the propertized EDGE-CHAR of grid between PT1 and PT2."
@@ -882,6 +903,14 @@
                (format "%7s" display-name)
                (concat " _ _ ")))))
 
+(defun tr--highlight-tile (str)
+  (dotimes (i (length str))
+    (let ((char-at (aref str i)))
+      (when (eql char-at ?\s)
+        (aset str i ?v)
+        (put-text-property i (1+ i) 'face 'alert-moderate-face str))))
+  str)
+
 (defun tr--board-line (pt line-no)
   (let* ((line-length (if (memq line-no '(0 3)) 5 7))
          (content (if (= line-no 3)
@@ -908,7 +937,10 @@
          ((eql top 'special)
           (tr--board-line-top-special at-tile line-no))
          ((eql type 'ocean)
-          (tr--board-line-ocean at-tile line-no))
+          (if (eql (tr-current-pending-arg) 'empty-ocean)
+              (tr--highlight-tile
+               (tr--board-line-ocean at-tile line-no))
+            (tr--board-line-ocean at-tile line-no)))
          (name
           (tr--board-line-name at-tile line-no))
          (t content))))))
@@ -916,16 +948,32 @@
 (defun tr--display-board ()
   (let ((parts '((" "
                   (lambda (a b c atl abl)
-                    (insert (tr--format-edge atl a "/") (tr--board-line a 0) (tr--format-edge a b "\\") (tr--board-line b 2))))
+                    (insert
+                     (tr--format-edge atl a "/")
+                     (propertize (tr--board-line a 0) 'tr-tile a)
+                     (tr--format-edge a b "\\")
+                     (propertize (tr--board-line b 2) 'tr-tile b))))
                  (""
                   (lambda (a b c atl abl)
-                    (insert (tr--format-edge atl a "/") (tr--board-line a 1) (tr--format-edge a b "\\") (tr--board-line b 3))))
+                    (insert
+                     (tr--format-edge atl a "/")
+                     (propertize (tr--board-line a 1) 'tr-tile a)
+                     (tr--format-edge a b "\\")
+                     (propertize (tr--board-line b 3) 'tr-tile b))))
                  (""
                   (lambda (a b c atl abl)
-                    (insert (tr--format-edge abl a "\\") (tr--board-line a 2) (tr--format-edge a c "/") (tr--board-line c 0))))
+                    (insert
+                     (tr--format-edge abl a "\\")
+                     (propertize (tr--board-line a 2) 'tr-tile a)
+                     (tr--format-edge a c "/")
+                     (propertize (tr--board-line c 0) 'tr-tile c))))
                  (" "
                   (lambda (a b c atl abl)
-                    (insert (tr--format-edge abl a "\\") (tr--board-line a 3) (tr--format-edge a c "/") (tr--board-line c 1)))))))
+                    (insert
+                     (tr--format-edge abl a "\\")
+                     (propertize (tr--board-line a 3) 'tr-tile a)
+                     (tr--format-edge a c "/")
+                     (propertize (tr--board-line c 1) 'tr-tile c)))))))
     (dotimes (row 10)
       (let ((r (- row 3))
             (q -4)
@@ -1002,8 +1050,7 @@
                                    (tr--process-selection idx item)
                                    (terraform-display-board))
                                  (list field-idx item))
-                      (tr-line-string item) "\n")))
-           ))))))
+                      (tr-line-string item) "\n")))))))))
 
 (cl-defun tr-selection (&key title items validation on-confirm)
   (when (not tr-selection-spec)
@@ -1025,7 +1072,7 @@
       ('error (setq msg (propertize msg 'font-lock-face 'error)))
       ('warn (setq msg (propertize msg 'font-lock-face 'warning)))
       ('info nil))
-    (insert "\n" msg "\n")
+    (insert "\n" (or msg "ERROR") "\n")
     (when (memq type passing-types)
       (insert (buttonize "[confirm selection]"
                          (lambda (_)
@@ -1118,21 +1165,23 @@
 
 (defun tr--display-standard-project-selection (standard-project-ids)
   (insert "Select a Standard Project:\n")
-  (let ((project-costs '((power-plant . 11)
-                         (asteroid . 14)
-                         (aquifer . 18)
-                         (greenery . 23)
-                         (city . 25)
-                         (sell-patents . 0))))
-    (dolist (proj-id standard-project-ids)
-      (insert "   " (button-buttonize (format "[%2d] %s"
-                                              (alist-get proj-id project-costs)
-                                              proj-id)
-                                      (lambda (proj-id)
-                                        (tr-submit-response (car tr-pending-request)
-                                                            (list (list 'standard-projects proj-id))))
-                                      proj-id)
-              "\n"))))
+  (dolist (standard-project tr--standard-projects)
+    (let ((label (tr-card-name standard-project))
+          (cost (tr-card-cost standard-project))
+          (proj-id (tr-card-number standard-project)))
+      (when (member proj-id standard-project-ids)
+        (insert "   " (button-buttonize (format "[%2d] %s"
+                                                cost
+                                                label)
+                                        (lambda (standard-project)
+                                          (tr-get-args
+                                           (tr--extract-card-actions standard-project)
+                                           (lambda (args)
+                                             (tr-submit-response
+                                              (car tr-pending-request)
+                                              (list (list 'standard-projects (tr-card-number standard-project) args))))))
+                                        standard-project)
+                "\n")))))
 
 (defun tr--display-extra-selection (extras)
   (insert "Other Actions:\n")
@@ -1194,10 +1243,12 @@
                        :items ,projects
                        :type multiple)]
    :validation (lambda (projects)
-                 "Good try")
+                 (list 'info "Select cards to purchase"))
    :on-confirm (lambda (projects)
                  ;;  TODO
-                 )))
+                 (tr-submit-response
+                  tr-active-player
+                  (list projects)))))
 
 ;; (cadr terraform-pending-request)
 (defun tr--display-action-selection ()
@@ -1211,16 +1262,30 @@
       (`(select-research-cards ,cards)
        (tr--select-research-cards cards)))))
 
+(defun tr--display-arg-selection ()
+  "Display the main message prompting the user to select an argument."
+  (insert "\n")
+  (pcase (tr-current-pending-arg)
+    ('empty-ocean
+     (insert "Please select an empty ocean tile."))
+    ('standard-city-placement
+     (insert "Please select a title to place city."))
+    ('standard-greenery-placement
+     (insert "Please select a title to place greenery."))))
+
 (defconst tr-main-buffer "*terraforming*") ;; TODO: support multiple instances of the game
 
 (defun tr-display-board ()
   "Display the board according to the current request."
   (with-current-buffer (get-buffer-create tr-main-buffer)
-    (erase-buffer)
-    (tr--display-board)
-    (tr--display-parameters)
-    (tr--display-player-panel)
-    (tr--display-action-selection)))
+    (let ((inhibit-read-only t))
+      (erase-buffer)
+      (tr--display-board)
+      (tr--display-parameters)
+      (tr--display-player-panel)
+      (if (tr-current-pending-arg)
+          (tr--display-arg-selection)
+        (tr--display-action-selection)))))
 
 
 
@@ -1234,10 +1299,46 @@
 (defvar tr-active-player nil)
 (defvar tr-action-no nil)
 
-(defvar tr-pending-arg-request nil)
+(defvar tr-pending-arg-request nil
+  "The remaining arguments that a user must provide.")
+(defvar tr-arg-callback nil  ;; TODO should I be making all of these private variables
+  "The remaining arguments that a user must provide.")
+(defvar tr-current-args nil
+  "The current list of arguments a user has provided to a cards action.")
+
+(defun tr--process-arg-selection (selection)
+  (when (tr-current-pending-arg)
+    (let ((ok (pcase (tr-current-pending-arg)
+                ('empty-ocean
+                 (tr--tile-empty-ocean-p (tr--gameboard-tile-at selection)))
+                ('standard-greenery-placement
+                 nil)
+                ('standard-city-placement
+                 nil))))
+      (when ok
+        (tr-push-arg selection)
+        (when (not tr-pending-arg-request)
+          (funcall tr-arg-callback tr-current-args))))))
+
+(defun tr-current-pending-arg ()
+  (car tr-pending-arg-request))
+
+(defun tr-push-arg (new-arg)
+  "Add NEW-ARG to list of in-progress args."
+  (setq tr-current-args
+        (append tr-current-args
+                (list new-arg)))
+  (setq tr-pending-arg-request
+        (cdr tr-pending-arg-request)))
 
 (defun tr-get-args (actions callback)
-  )
+  "Add arg-fetch state, fetching ACTIONS, calling CALLBACK when done."
+  (if (= (length actions) 0)
+      (funcall callback nil)
+    (setq tr-pending-arg-request actions)
+    (setq tr-current-args nil)
+    (setq tr-arg-callback callback)
+    (tr-display-board)))
 
 (defun tr-!draw-corporations ()
   ""
@@ -1250,7 +1351,7 @@
   "Return N cards from the top of the deck.  Cards are removed from the deck."
   (let* ((deck (tr-game-state-deck tr-game-state))
          (top (seq-take deck n)))
-    (setf (tr-game-state-corporation-deck tr-game-state) (seq-drop deck n))
+    (setf (tr-game-state-deck tr-game-state) (seq-drop deck n))
     top))
 
 (defun tr-!discard-cards (card-ids)
@@ -1310,15 +1411,26 @@
   (cl-incf (tr-game-state-param-oxygen tr-game-state) amt)
   (cl-incf (tr-player-rating tr-active-player) amt))
 
+(defun tr-!placement-bonus (tile)
+  (unless (plistp tile)
+    (error "Invalid tile data: %s" tile))
+  ;; Tile Bonus
+  (let* ((bonus (plist-get tile :bonus)))
+    (dolist (bonus-item bonus)
+      (tr-!increment-user-resource bonus-item 1)))
+  ;; Ocean bonus
+  )
+
 (defun tr-!place-ocean (location)
   ;; TODO: validate location is ok
   (cl-incf (tr-game-state-param-ocean tr-game-state))
   (cl-incf (tr-player-rating tr-active-player))
   (let* ((board (tr-gameboard-board (tr-game-state-gameboard tr-game-state)))
          (tile (gethash location board)))
+    (tr-!placement-bonus tile)
     (puthash location (plist-put tile :top 'ocean) board)))
 
-(defun tr-!place-ocean (location)
+(defun tr-!place-greenery (location)
   ;; TODO: validate location is ok
   (cl-incf (tr-game-state-param-oxygen tr-game-state))
   (cl-incf (tr-player-rating tr-active-player))
@@ -1397,7 +1509,7 @@
   (let* ((cards (tr-!draw-cards 4)))
     (tr->request tr-active-player
                  `(select-research-cards ,cards)
-                 #'tr-action-performed)))
+                 #'tr-!research-projects-selected)))
 
 (defun tr-!player-pass ()
   (let* ((active-player-id (tr-player-id tr-active-player))
@@ -1516,16 +1628,16 @@
     (pcase action
       (`(projects ,project-id ,params)
        (tr-!run-project project-id params))
-      (`(standard-projects power-plant)
+      (`(standard-projects power-plant ,_)
        (tr-!run-effect [(dec money 11) (inc energy-production 1)]))
-      (`(standard-projects asteroid)
+      (`(standard-projects asteroid ,_)
        (tr-!run-effect [(dec money 14) (inc-param tempurature 1)]))
-      (`(standard-projects aquifer ,location) ;; TODO change "location" to generic PARAMS
-       (tr-!run-effect [(dec money 18) (add-ocean)] (list location)))
-      (`(standard-projects greenery ,location) ;; TODO change "location" to generic PARAMS
-       (tr-!run-effect [(dec money 23) (add-greenery)] (list location)))
-      (`(standard-projects city ,location) ;; TODO change "location" to generic PARAMS
-       (tr-!run-effect [(dec money 25) (add-city)] (list location)))
+      (`(standard-projects aquifer ,args) ;; TODO change "location" to generic PARAMS
+       (tr-!run-effect [(dec money 18) (add-ocean)] args))
+      (`(standard-projects greenery ,args) ;; TODO change "location" to generic PARAMS
+       (tr-!run-effect [(dec money 23) (add-greenery)] args))
+      (`(standard-projects city ,args) ;; TODO change "location" to generic PARAMS
+       (tr-!run-effect [(dec money 25) (add-city)] args))
       (`(standard-projects sell-patents ,card-ids) ;; TODO change "cards" to generic PARAMS
        (tr-!discard-cards card-ids)
        (tr-!increment-user-resource 'money (length card-ids)))
@@ -1533,6 +1645,18 @@
        (tr-!player-pass))
       (_ (error "Invalid action response %s" action)))
     (tr-action-step)))
+
+(defun tr-!research-projects-selected (player cards)
+  (setf (tr-player-hand player)
+        (append (tr-player-hand player)
+                cards))
+  (cl-decf (tr-player-money player) (* 3 (length cards)))
+  ;; TODO - wait for all players
+  ;; TODO  - Rotate players
+  (let* ((first-player (tr-?first-player)))
+    (tr->request first-player
+                 (tr-actions-for first-player)
+                 #'tr-action-performed)))
 
 (defun tr-!corporation-selected (player selected-corp selected-cards) ;; TODO: change name
   "Action to make initial selection of PLAYER for SELECTED-CORP and SELECTED-CARDS."
@@ -1569,13 +1693,16 @@
     (tr-display-board)))
 
 (defun tr-reset-game-state ()
-  ;; TODO 
-  (error "not implemented"))
+  ;; TODO
+  (setq tr-current-args nil)
+  (setq tr-arg-callback nil)
+  (setq tr-pending-arg-request nil))
 
 (defun tr-run ()
   "Demo command to run game."
   (unless tr-game-state
     (error "No initialized game state"))
+  (tr-reset-game-state)
   (setq tr-selection-spec nil
         tr-current-selection nil)
   (setq tr-game-state (tr--new-game-state 1))
@@ -1585,6 +1712,27 @@
       (tr->request player
                    `(select-starting-cards ,corps ,cards)
                    #'tr-!corporation-selected))))
+
+
+;;;  Game Mode
+
+(defun tr-dwim ()
+  (interactive)
+  (let* ((coords (get-text-property (point) 'tr-tile)))
+    (tr--process-arg-selection coords)))
+
+(defconst tr-mode-map
+  (let ((map (make-keymap)))
+    (prog1 map
+      (define-key map (kbd "RET") #'tr-dwim))))
+
+(define-derived-mode tr-mode fundamental-mode "tr-game"
+  "Major mode for interacting with tr game-board."
+  (setq buffer-read-only t)
+  (setq-local truncate-lines 0)
+  (toggle-truncate-lines 1))
+
+
 
 ;;; TODO LIST
 ;; Card to string

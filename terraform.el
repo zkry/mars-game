@@ -66,6 +66,11 @@
   hand
   played)
 
+(defun tr-get-player-resource-sell-amount (player resource)
+  (pcase resource
+    ('titanium 3)
+    ('steel 2)))
+
 
 ;;; game board
 
@@ -85,6 +90,23 @@
 (defun tr--gameboard-tile-at (pt)
   "return the gameboard tile at pt."
   (gethash pt (tr-gameboard-board (tr-game-state-gameboard tr-game-state))))
+
+
+(defun tr--valid-coordinate-p (coord)
+  "Retunr non-nil if COORD is a valid gameboard coordinate."
+  (seq-let (q r s) coord
+    (<= (+ (abs q) (abs r) (abs s)) 8)))
+
+(defun tr--gameboard-adjacent-tiles (pt)
+  (seq-let (q r s) coord
+    (let ((adjacents `((,q ,(1+ r) ,(1- s))
+                       (,q ,(1- r) ,(1+ s))
+                       (,(1+ q) ,(1- r) ,s)
+                       (,(1- q) ,(1+ r) ,s)
+                       (,(1+ q) ,r ,(1- s))
+                       (,(1- q) ,r ,(1+ s))))
+          (valid-adjacents (seq-filter #'tr--valid-coordinate-p adjacents)))
+      (seq-map #'tr--gameboard-tile-at valid-adjacents))))
 
 (defun tr--tile-empty-ocean-p (tile)
   (and (not (plist-get tile :top))
@@ -460,6 +482,18 @@
   (let* ((effects (tr-card-effect card)))
     (seq-filter #'identity (seq-map #'tr--extract-action effects))))
 
+(defun tr--player-satisfies-action-requirement (player action)
+  "Return non-nil if PLAYER satisfies the requirement section of ACTION."
+  (let ((tr-active-player player))
+    (pcase action
+      ('nil t)
+      (`(-> (dec ,resource ,amt) ,_effect)
+       (>= (tr-get-requirement-count resource) amt))
+      (`(-> (buy ,resource ,amt) ,_effect)
+       (>= (+ (tr-get-requirement-count 'money)
+              (* (tr-get-player-resource-sell-amount tr-active-player resource)
+                 (tr-get-requirement-count resource))))))))
+
 
 
 ;;; Generic Functions
@@ -555,6 +589,21 @@
 
 (cl-defmethod tr-line-string ((item tr-corporation))
   (format "%s %s" (tr-corporation-name item) (tr-effects-to-string (tr-corporation-effect item))))
+
+(defun tr-card-propertized-name (card)
+  (let* ((card-type (tr-card-type card))
+         (card-face (pcase card-type
+                      ('active 'tr-active-face)
+                      ('automated 'tr-automated-face)
+                      ('event 'tr-event-face))))
+    (propertize (tr-card-name card) 'font-lock-face card-face)))
+
+(defun tr-card-short-line-string (card)
+  "Return shorter string for CARD used for displaying after played."
+  (let* ((card-name (tr-card-propertized-name card)))
+    (format "%s %s"
+            card-name
+            (tr-effects-to-string (tr-card-action card)))))
 
 
 ;;; Game State
@@ -1163,6 +1212,18 @@
               (tr-line-string card)
               "\n"))))
 
+(defun tr--display-project-actions-selection (project-ids)
+  (insert "Select a Project Action:\n")
+  (dolist (project-id project-ids)
+    (let* ((project (tr-card-by-id project-id))
+           (actions (tr-card-action project)))
+      (seq-do
+       (lambda (action)
+         (when (tr--player-satisfies-action-requirement tr-active-player action)
+           (insert (format "   [ ] %s %s" (tr-card-propertized-name project) (tr-effect-to-string action)))))
+       actions)))
+  (insert "\n"))
+
 (defun tr--display-standard-project-selection (standard-project-ids)
   (insert "Select a Standard Project:\n")
   (dolist (standard-project tr--standard-projects)
@@ -1203,6 +1264,7 @@
            (action-params (cdr action)))
       (pcase action-symbol
         ('projects (tr--display-project-selection action-params))
+        ('project-actions (tr--display-project-actions-selection action-params))
         ('standard-projects (tr--display-standard-project-selection action-params))
         ('extra (tr--display-extra-selection action-params))))))
 
@@ -1273,6 +1335,22 @@
     ('standard-greenery-placement
      (insert "Please select a title to place greenery."))))
 
+(defun tr--display-hand ()
+  "Display the players current hand."
+  (insert "\n\n")
+  (let ((hand (tr-player-hand tr-active-player)))
+    (insert (format "Hand (%d):\n" (length hand)))
+    (dolist (project hand)
+      (insert "- " (tr-line-string project) "\n"))))
+
+(defun tr--display-in-front ()
+  "Display the cards played in front of the user."
+  (insert "\n")
+  (let ((in-front-projects (tr-player-played tr-active-player)))
+    (insert (format "Played Cards (%d)\n" (length in-front-projects)))
+    (dolist (proj in-front-projects)
+      (insert "- " (tr-card-short-line-string proj) "\n"))))
+
 (defconst tr-main-buffer "*terraforming*") ;; TODO: support multiple instances of the game
 
 (defun tr-display-board ()
@@ -1285,9 +1363,10 @@
       (tr--display-player-panel)
       (if (tr-current-pending-arg)
           (tr--display-arg-selection)
-        (tr--display-action-selection)))))
-
-
+        (tr--display-action-selection))
+      ;;; extra information
+      (tr--display-hand)
+      (tr--display-in-front))))
 
 
 ;;; Game Flow
@@ -1401,7 +1480,13 @@
     ('heat
      (cl-incf (tr-player-heat tr-active-player) amount))
     ('heat-production
-     (cl-incf (tr-player-heat-production tr-active-player) amount))))
+     (cl-incf (tr-player-heat-production tr-active-player) amount))
+    ('card
+     (let ((cards (tr-!draw-cards amount)))
+       (setf (tr-player-hand tr-active-player)
+             (append (tr-player-hand tr-active-player)
+                     cards))))
+    (_ (error "incrementing unknown resource: %s" resource))))
 
 (defun tr-!increase-tempurature (amt)
   (cl-incf (tr-game-state-param-tempurature tr-game-state) amt)
@@ -1411,39 +1496,40 @@
   (cl-incf (tr-game-state-param-oxygen tr-game-state) amt)
   (cl-incf (tr-player-rating tr-active-player) amt))
 
-(defun tr-!placement-bonus (tile)
-  (unless (plistp tile)
-    (error "Invalid tile data: %s" tile))
-  ;; Tile Bonus
-  (let* ((bonus (plist-get tile :bonus)))
-    (dolist (bonus-item bonus)
-      (tr-!increment-user-resource bonus-item 1)))
-  ;; Ocean bonus
-  )
+(defun tr-!placement-bonus (coord)
+  (let ((tile (tr--gameboard-tile-at coord)))
+    ;; Tile Bonus
+    (let* ((bonus (plist-get tile :bonus)))
+      (dolist (bonus-item bonus)
+        (tr-!increment-user-resource bonus-item 1)))
+    ;; Ocean bonus
+    (let* ((adj-tiles (tr--gameboard-adjacent-tiles coord))
+           (ocean-bonus (* 2 (length (seq-filter (lambda (tile) (eql (plist-get tile :top) 'ocean)) adj-tiles)))))
+      (tr-!increment-user-resource 'money ocean-bonus))))
 
-(defun tr-!place-ocean (location)
-  ;; TODO: validate location is ok
+(defun tr-!place-ocean (coord)
+  ;; TODO: validate coord is ok
   (cl-incf (tr-game-state-param-ocean tr-game-state))
   (cl-incf (tr-player-rating tr-active-player))
   (let* ((board (tr-gameboard-board (tr-game-state-gameboard tr-game-state)))
-         (tile (gethash location board)))
-    (tr-!placement-bonus tile)
-    (puthash location (plist-put tile :top 'ocean) board)))
+         (tile (gethash coord board)))
+    (tr-!placement-bonus coord)
+    (puthash coord (plist-put tile :top 'ocean) board)))
 
-(defun tr-!place-greenery (location)
-  ;; TODO: validate location is ok
+(defun tr-!place-greenery (coord)
+  ;; TODO: validate coord is ok
   (cl-incf (tr-game-state-param-oxygen tr-game-state))
   (cl-incf (tr-player-rating tr-active-player))
   (let* ((board (tr-gameboard-board (tr-game-state-gameboard tr-game-state)))
-         (tile (gethash location board)))
-    (puthash location (plist-put (plist-put tile :top 'greenery) :player (tr-player-id tr-active-player))
+         (tile (gethash coord board)))
+    (puthash coord (plist-put (plist-put tile :top 'greenery) :player (tr-player-id tr-active-player))
              board)))
 
-(defun tr-!place-city (location)
-  ;; TODO: validate location is ok
+(defun tr-!place-city (coord)
+  ;; TODO: validate coord is ok
   (let* ((board (tr-gameboard-board (tr-game-state-gameboard tr-game-state)))
-         (tile (gethash location board)))
-    (puthash location (plist-put (plist-put tile :top 'city) :player (tr-player-id tr-active-player))
+         (tile (gethash coord board)))
+    (puthash coord (plist-put (plist-put tile :top 'city) :player (tr-player-id tr-active-player))
              board)))
 
 (defun tr-!run-effect (effect &optional params)
@@ -1579,6 +1665,17 @@
                  (tr-requirements-satisfied-p requirements))))
         hand)))))
 
+(defun tr-playable-project-actions-for (player)
+  (let ((tr-active-player player)
+        (hand (tr-player-played player)))
+    (seq-map
+     (lambda (project)
+       (tr-card-number project))
+     (seq-filter
+      (lambda (project)
+        (tr-card-action project))
+      hand))))
+
 (defun tr-standard-projects-for (player)
   "Return list of all standard projects a player can take."
   (let ((hand (tr-player-hand player))
@@ -1595,6 +1692,7 @@
 (defun tr-actions-for (player)
   "Return description of all actions the player can take."
   `(action ((projects . ,(tr-playable-projects-for player))
+            (project-actions . ,(tr-playable-project-actions-for player))
             (standard-projects . ,(tr-standard-projects-for player))
             (extra . (pass)))))
 
@@ -1628,6 +1726,8 @@
     (pcase action
       (`(projects ,project-id ,params)
        (tr-!run-project project-id params))
+      (`(project-action ,project-id ,params)
+       (message "TODO perform action."))
       (`(standard-projects power-plant ,_)
        (tr-!run-effect [(dec money 11) (inc energy-production 1)]))
       (`(standard-projects asteroid ,_)
@@ -1652,7 +1752,7 @@
                 cards))
   (cl-decf (tr-player-money player) (* 3 (length cards)))
   ;; TODO - wait for all players
-  ;; TODO  - Rotate players
+  ;; TODO - Rotate players
   (let* ((first-player (tr-?first-player)))
     (tr->request first-player
                  (tr-actions-for first-player)

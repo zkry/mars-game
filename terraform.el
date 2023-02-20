@@ -195,7 +195,9 @@
   tile
   type
   action
-  effect)
+  continuous-effect
+  effect
+  resource-count)
 
 (defconst tr--sample-card-1
   ;; TODO - Requirements for cards
@@ -249,7 +251,10 @@
    :type 'active
    :action '[(-> (dec money 1)
                  (action "🦠*:SCI"
-                         (lambda ())))]))
+                         (lambda (this player)
+                           (let ((card (car (tr-!draw-cards 1))))
+                             (when (member 'microbe (tr-card-tags card))
+                               (cl-incf (tr-card-resource-count this)))))))]))
 (defconst tr--sample-card-6
   (tr-card-create
    :number 6
@@ -280,7 +285,7 @@
    :requirements '(>= ocean 4)
    :effect [(dec energy-production 2) (inc money-production 5)]
    :victory-points
-   (lambda ()
+   (lambda (this)
      (let ((tile (tr-get-tile-by-name 'capital)))
        (when tile
          (length (seq-filter
@@ -309,7 +314,7 @@
    :cost 27
    :type 'event
    :tags '(space event)
-   :effect [(inc-tempurature 2) (inc titanium 4) (dec-other plant 4)]))
+   :effect [(inc-tempurature) (inc-tempurature) (inc titanium 4) (dec-other plant 4)]))
 (defconst tr--sample-card-12
   (tr-card-create
    :number 12
@@ -326,6 +331,7 @@
    :cost  27
    :name "Space Elevator"
    :type 'active
+   :tags '(space building)
    :action '[(-> (dec steel 1)
                  (inc money 5))]
    :effect [(inc titanium-production 1)]
@@ -335,27 +341,187 @@
    :number 14
    :cost 11
    :name "Development Center"
+   :tags '(science building)
    :type 'active
    :action '[(-> (dec energy 1)
-                 (draw-project 1))]))
+                 (inc card 1))]))
 (defconst tr--sample-card-15
   (tr-card-create
    :number 15
    :name "Equatorial Magnetizer"
+   :tags '(building)
    :type 'active
    :cost 11
    :action '[(-> (dec energy-production 1)
                  (inc rating 1))]))
 (defconst tr--sample-card-16
   (tr-card-create
-   :number 15
+   :number 16
    :name "Domed Crater"
+   :tags '(city building)
    :type 'automated
+   :cost 24
    :requirements `(<= oxygen 7)
    :effect [(dec energy-production 1)
             (inc money-production 3)
             (add-city)
             (inc plant 3)]))
+(defconst tr--sample-card-17
+  (tr-card-create
+   :number 17
+   :name "Noctis City"
+   :cost 18
+   :type 'automated
+   :tags '(city building)
+   :effect [(dec energy-production 1)
+            (inc money-production 3)
+            (add-noctis-city)]))
+
+(defconst tr--sample-card-18
+  (tr-card-create
+   :number 18
+   :name "Methane From Titan"
+   :cost 28
+   :requirements '(>= oxygen 2)
+   :type 'automated
+   :tags '(jovian space)
+   :effect [(inc heat-production 2)
+            (inc platn-production 2)]
+   :victory-points 2))
+
+(defconst tr--sample-card-19
+  (tr-card-create
+   :number 19
+   :name "Imported Hydrogen"
+   :cost 16
+   :requirements nil
+   :type 'event
+   :tags '(earth space)
+   :effect [(or (inc plant 3) (add microbe 3) (add animal 2))
+            (add-ocean)]))
+
+(defconst tr--sample-card-20
+  (tr-card-create
+   :number 20
+   :name "Research Outpost"
+   :cost 18
+   :requirements nil
+   :type 'active
+   :tags '(science city building)
+   :effect [(add-non-adjacent-city)]
+   :continuous-effect '(add-modifier ":-1$" (reduce-project-cost 1))))
+
+(defconst tr--sample-card-21
+  (tr-card-create
+   :number 21
+   :name "Phobos Space Haven"
+   :cost 25
+   :requirements nil
+   :type 'automated
+   :tags '(city space)
+   :effect [(inc titanium-production 1)
+            (add-phobos-space-haven-city)]
+   :victory-points 3))
+
+(defconst tr--sample-card-22
+  (tr-card-create
+   :number 22
+   :name "Black Polar Dust"
+   :cost 15
+   :requirements  nil
+   :type 'automated
+   :tags '()
+   :effect [(dec money-production 2) (inc heat-production 3) (add-ocean)]))
+
+(defconst tr--sample-card-23
+  (tr-card-create
+   :number 23
+   :name "Arctic Algae"
+   :cost 12
+   :requirements '(<= tempurature -12) ;; TODO : right unit?
+   :tags '(plant)
+   :effect [(inc plant 1)]
+   :continuous-effect '(on ocean-placed (inc plant 2))))
+
+(defconst tr--sample-card-24
+  (tr-card-create
+   :number 24
+   :name "Predators"
+   :cost 14
+   :requirements  '(>= oxygen 11)
+   :type 'active
+   :tags '(animal)
+   :action [(-> (remove any-animal 1)
+                (add-token 1))]
+   :victory-points
+   (lambda (this) (tr-card-resource-count this))))
+
+(defconst tr--sample-card-25
+  (tr-card-create
+   :number 25
+   :name "Space Station"
+   :cost 10
+   :requirements nil
+   :type 'automated
+   :tags '(space)
+   :continuous-effect '(add-modifier
+                        ":space::-2$"
+                        (reduce-cost-for-tag space 2))
+   :action [(-> )]
+   :victory-points 1))
+
+(defconst tr--sample-card-26
+  (tr-card-create
+   :number 26
+   :name "EOS Chasma National Park"
+   :cost 16
+   :requirements '(>= tempurature -12)
+   :type 'automated
+   :tags '(plant building)
+   :effect [(add animal 1)
+            (inc plant 3)
+            (inc money-production 2)]
+   :victory-points 1))
+
+(defconst tr--sample-card-27
+  (tr-card-create
+   :number 27
+   :name "Interstellar Colony Ship"
+   :cost 24
+   :requirements '(>= science-tag 5)
+   :type 'event
+   :tags '(earth space)
+   :victory-points 4))
+
+;; (defconst tr--sample-card-
+;;   (tr-card-create
+;;    :number 
+;;    :name ""
+;;    :cost 
+;;    :requirements 
+;;    :type 
+;;    :tags '()
+;;    :effect []
+;;    :continuous-effect nil
+;;    :action [(-> )]
+;;    :victory-points))
+
+;;; CARD TEMPLATE
+;; (defconst tr--sample-card-
+;;   (tr-card-create
+;;    :number 
+;;    :name ""
+;;    :cost 
+;;    :requirements 
+;;    :type 
+;;    :tags '()
+;;    :effect []
+;;    :continuous-effect nil
+;;    :action [(-> )]
+;;    :victory-points))
+
+
+
 
 (defconst tr--standard-projects
   `(,(tr-card-create
@@ -401,7 +567,22 @@
         tr--sample-card-9
         tr--sample-card-10
         tr--sample-card-11
-        tr--sample-card-12))
+        tr--sample-card-12
+        tr--sample-card-13
+        tr--sample-card-14
+        tr--sample-card-15
+        tr--sample-card-16
+        tr--sample-card-17
+        tr--sample-card-18
+        tr--sample-card-19
+        tr--sample-card-20
+        tr--sample-card-21
+        tr--sample-card-22
+        tr--sample-card-23
+        tr--sample-card-24
+        tr--sample-card-25
+        tr--sample-card-26
+        tr--sample-card-27))
 
 (defun tr-card-by-id (id)
   "Return the card of the given ID."
@@ -464,7 +645,10 @@
 
 (defun tr-sample-deck ()
   (list tr--sample-card-1 tr--sample-card-2 tr--sample-card-3 tr--sample-card-4 tr--sample-card-5 tr--sample-card-6 tr--sample-card-7
-        tr--sample-card-8 tr--sample-card-9 tr--sample-card-10 tr--sample-card-11 tr--sample-card-12))
+        tr--sample-card-8 tr--sample-card-9 tr--sample-card-10 tr--sample-card-11 tr--sample-card-12
+        tr--sample-card-13 tr--sample-card-14 tr--sample-card-15 tr--sample-card-16 tr--sample-card-17 tr--sample-card-18
+        tr--sample-card-19 tr--sample-card-20 tr--sample-card-21 tr--sample-card-22 tr--sample-card-23 tr--sample-card-24
+        tr--sample-card-25 tr--sample-card-26 tr--sample-card-27))
 
 (defun tr--sample-corporation-deck ()
   (list tr--sample-corp-1 tr--sample-corp-2 tr--sample-corp-3 tr--sample-corp-4 tr--sample-corp-5))
@@ -486,7 +670,7 @@
   "Return non-nil if PLAYER satisfies the requirement section of ACTION."
   (let ((tr-active-player player))
     (pcase action
-      ('nil t)
+      (`(-> nil ,_effect) t)
       (`(-> (dec ,resource ,amt) ,_effect)
        (>= (tr-get-requirement-count resource) amt))
       (`(-> (buy ,resource ,amt) ,_effect)
@@ -512,6 +696,9 @@
     ('energy tr--energy-char)
     ('heat-production (tr--char->prod tr--heat-char))
     ('heat tr--heat-char)
+    ('card tr--card-char)
+    ('every-city (concat (tr--char->decrease-any "[") tr--city-tag
+                         (tr--char->decrease-any "]")))
     (_ "?")))
 
 (defun tr-effect-to-string (clause)
@@ -520,12 +707,21 @@
     ('() "")
     (`(inc ,resource ,amt)
      (format "+%d%s" amt (tr-resource-type-to-string resource)))
+    (`(inc-per ,resource ,by)
+     (format "+%s/%s"
+             (tr-resource-type-to-string resource)
+             (tr-resource-type-to-string by)))
+    (`(buy ,resource ,amt)
+     (let* ((purchase-symbol (pcase resource
+                               ('titanium tr--titanium-char)
+                               ('steel tr--steel-char))))
+       (format "-%d%s(%s)" amt tr--money-char purchase-symbol)))
     (`(dec ,resource ,amt)
      (format "-%d%s" amt (tr-resource-type-to-string resource)))
     (`(dec-other ,resource ,amt)
      (format "-%d%s" amt (tr--char->decrease-any (tr-resource-type-to-string resource))))
     (`(inc-tempurature)
-     "℃")
+     "+℃")
     (`(add-ocean)
      "+H₂O")
     (`(-> ,cost ,action)
@@ -570,6 +766,15 @@
     effect)
    "; "))
 
+(defun tr-continuous-effect-to-string (effect)
+  "Convert a card's continuous effect to a string."
+  (if effect
+      (pcase effect
+        (`(add-modifier ,label ,_mod) label)
+        (`(on ,event ,effect)
+         (format "%s:%s" event (tr-effect-to-string effect))))
+    ""))
+
 (cl-defgeneric tr-line-string (item)
   (:documentation "Display item on a single line."))
 
@@ -579,13 +784,14 @@
                       ('active 'tr-active-face)
                       ('automated 'tr-automated-face)
                       ('event 'tr-event-face)))
-         (card-name (propertize (tr-card-name item) 'font-lock-face card-face)))
-    (format "$%2d %5s %s %s %s"
+         (card-name (tr-card-propertized-name item)))
+    (format "$%2d %5s %s %s %s %s"
             (tr-card-cost item)
             (tr-requirements-to-string (tr-card-requirements item))
             card-name
             (tr-effects-to-string (tr-card-effect item))
-            (tr-effects-to-string (tr-card-action item)))))
+            (tr-effects-to-string (tr-card-action item))
+            (tr-continuous-effect-to-string (tr-card-continuous-effect item)))))
 
 (cl-defmethod tr-line-string ((item tr-corporation))
   (format "%s %s" (tr-corporation-name item) (tr-effects-to-string (tr-corporation-effect item))))
@@ -772,6 +978,11 @@
 (defconst tr--plant-char (propertize "☘" 'font-lock-face 'tr-plant-face))
 (defconst tr--energy-char (propertize "↯" 'font-lock-face 'tr-energy-face))
 (defconst tr--heat-char (propertize "≋" 'font-lock-face 'tr-heat-face))
+
+;; tags
+(defconst tr--city-tag "🏙️")
+(defconst tr--microbe-tag "🦠️")
+
 
 (defconst tr--action-arrow (propertize "→" 'font-lock-face '(:foreground "red" :weight bold) ))
 
@@ -1136,7 +1347,7 @@
 
 (defun tr--display-parameters ()
   "Display game parameters."
-  (insert (format "Generation: %d   Ocean:%d/9   Temp:%s   O2:%s\n"
+  (insert (format "Generation: %d   Ocean:%d/9   Temp:%s   O₂:%s\n"
                   (tr-game-state-generation tr-game-state)
                   (tr-game-state-param-ocean tr-game-state)
                   (tr-game-state-param-tempurature tr-game-state)
@@ -1219,8 +1430,21 @@
            (actions (tr-card-action project)))
       (seq-do
        (lambda (action)
+         ;; TODO - Normally UI shouldn't be filtering this selection
          (when (tr--player-satisfies-action-requirement tr-active-player action)
-           (insert (format "   [ ] %s %s" (tr-card-propertized-name project) (tr-effect-to-string action)))))
+           (insert
+            "   "
+            (button-buttonize "[ ]"
+                              (pcase-lambda (`(,project ,action))
+                                (pcase-let ((`(-> ,_cost ,effect) action))
+                                  (tr-get-args ;; TODO - bad name: action of card and action of user
+                                   (seq-filter #'identity (tr--extract-action effect)) 
+                                   (lambda (args)
+                                     (tr-submit-response
+                                      (car tr-pending-request)
+                                      (list (list 'project-action project action args)))))))
+                              (list project action))
+            (format " %s %s\n" (tr-card-propertized-name project) (tr-effect-to-string action)))))
        actions)))
   (insert "\n"))
 
@@ -1337,19 +1561,21 @@
 
 (defun tr--display-hand ()
   "Display the players current hand."
-  (insert "\n\n")
-  (let ((hand (tr-player-hand tr-active-player)))
-    (insert (format "Hand (%d):\n" (length hand)))
-    (dolist (project hand)
-      (insert "- " (tr-line-string project) "\n"))))
+  (when tr-active-player
+    (let ((hand (tr-player-hand tr-active-player)))
+      (insert "\n\n")
+      (insert (format "Hand (%d):\n" (length hand)))
+      (dolist (project hand)
+        (insert "- " (tr-line-string project) "\n")))))
 
 (defun tr--display-in-front ()
   "Display the cards played in front of the user."
-  (insert "\n")
-  (let ((in-front-projects (tr-player-played tr-active-player)))
-    (insert (format "Played Cards (%d)\n" (length in-front-projects)))
-    (dolist (proj in-front-projects)
-      (insert "- " (tr-card-short-line-string proj) "\n"))))
+  (when tr-active-player
+    (let ((in-front-projects (tr-player-played tr-active-player)))
+      (insert "\n")
+      (insert (format "Played Cards (%d)\n" (length in-front-projects)))
+      (dolist (proj in-front-projects)
+        (insert "- " (tr-card-short-line-string proj) "\n")))))
 
 (defconst tr-main-buffer "*terraforming*") ;; TODO: support multiple instances of the game
 
@@ -1532,7 +1758,18 @@
     (puthash coord (plist-put (plist-put tile :top 'city) :player (tr-player-id tr-active-player))
              board)))
 
-(defun tr-!run-effect (effect &optional params)
+(defun tr--count-thing (thing)
+  (pcase thing
+    ('every-city
+     (let* ((coords (tr--board-coordinates))
+            (ct 0))
+       (dolist (coord coords)
+         (let* ((tile (tr--gameboard-tile-at coord)))
+           (when (eql (plist-get tile :top) 'city)
+             (cl-incf ct))))
+       ct))))
+
+(defun tr-!run-effect (effect &optional params card)
   (unless tr-active-player
     (error "No active player's turn."))
   (seq-do
@@ -1542,6 +1779,9 @@
         (tr-!increase-tempurature amount))
        (`(inc ,resource ,amount)
         (tr-!increment-user-resource resource amount))
+       (`(inc-per ,resource ,thing)
+        (let* ((amt (tr--count-thing thing)))
+          (tr-!increment-user-resource resource amt)))
        (`(dec ,resource ,amount)
         (tr-!increment-user-resource resource (- amount)))
        (`(add-ocean)
@@ -1552,8 +1792,19 @@
           (tr-!place-greenery location)))
        (`(add-city)
         (let ((location (pop params)))
-          (tr-!place-city location)))))
+          (tr-!place-city location)))
+       (`(action ,_msg ,action-lambda)
+        (funcall action-lambda card tr-active-player))
+       (_ (error "Action not implemented: %s" action))))
    effect))
+
+(defun tr-!run-action (action params card)
+  (unless tr-active-player
+    (error "No active player's turn."))
+  (unless (tr-card-p card)
+    (error "invalid card" card))
+  (pcase-let ((`(-> ,cost ,effect) action))
+    (tr-!run-effect (vector cost effect) params card)))
 
 (defun tr-!run-project (project-id params)
   "Run the effects of a given card."
@@ -1630,11 +1881,11 @@
     ('titanium (tr-player-titanium tr-active-player))
     ('titanium-production (tr-player-titanium-production tr-active-player))
     ('plant-production (tr-player-plant-production tr-active-player))
-    ('plant (tr-player-plant-production tr-active-player))
+    ('plant (tr-player-plant tr-active-player))
     ('energy-production (tr-player-energy-production tr-active-player))
-    ('energy (tr-player-energy-production tr-active-player))
+    ('energy (tr-player-energy tr-active-player))
     ('heat-production (tr-player-heat-production tr-active-player))
-    ('heat (tr-player-heat-production tr-active-player))
+    ('heat (tr-player-heat tr-active-player))
     ('ocean (tr-game-state-param-ocean tr-game-state))
     ('oxygen (tr-ct-to-oxygen (tr-game-state-param-oxygen tr-game-state)))))
 
@@ -1726,8 +1977,8 @@
     (pcase action
       (`(projects ,project-id ,params)
        (tr-!run-project project-id params))
-      (`(project-action ,project-id ,params)
-       (message "TODO perform action."))
+      (`(project-action ,card ,action ,params)
+       (tr-!run-action action params card))
       (`(standard-projects power-plant ,_)
        (tr-!run-effect [(dec money 11) (inc energy-production 1)]))
       (`(standard-projects asteroid ,_)
@@ -1796,6 +2047,9 @@
   ;; TODO
   (setq tr-current-args nil)
   (setq tr-arg-callback nil)
+  (setq tr-current-selection nil)
+  (setq tr-selection-spec nil)
+  (setq tr-active-player nil)
   (setq tr-pending-arg-request nil))
 
 (defun tr-run ()

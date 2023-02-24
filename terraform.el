@@ -71,6 +71,17 @@
     ('titanium 3)
     ('steel 2)))
 
+(defun tr-add-projects-to-players-hand (player projects)
+  (seq-do
+   (lambda (elt)
+     (unless (tr-card-p elt)
+       (error "invalid card: %s" elt)))
+   projects)
+  (unless (tr-player-p player)
+    (error "invalid player: %s" player))
+  (setf (tr-player-hand player)
+        (append projects (tr-player-hand player))))
+
 
 ;;; game board
 
@@ -200,16 +211,12 @@
   resource-count)
 
 (defconst tr--sample-card-1
-  ;; TODO - Requirements for cards
-  ;; TODO - Display requirements for cards
   ;; TODO - Global parameter requirement O2
-  ;; TODO - Figure out card tags
   (tr-card-create
    :number 1
    :name "Colonizer Training Camp"
    :cost 8
    :tags '(jovian building)
-   :type 'automated
    :victory-points 2
    :type 'automated))
 (defconst tr--sample-card-2
@@ -263,8 +270,7 @@
    :type 'active
    :tags '(science)
    :action '[(-> nil
-                 (action "Look at top card, buy or discard"
-                         (lambda ())))]))
+                 (draw-cards-keep-some 1 t))]))
 (defconst tr--sample-card-7
   (tr-card-create
    :number 7
@@ -588,7 +594,7 @@
   "Return the card of the given ID."
   (seq-find (lambda (card)
               (= (tr-card-number card) id))
-            tr-all-cards))
+            (tr-game-state-all-cards tr-game-state)))
 
 (cl-defstruct (tr-corporation
                (:constructor tr-corporation-create)
@@ -597,51 +603,9 @@
   name
   tags
   effect
-  active-effect
+  continuous-effect
   action
   first-move)
-
-(defconst tr--sample-corp-1
-  (tr-corporation-create
-   :number 1
-   :name "Credicor"
-   :tags nil
-   :effect [(inc money 57)]
-   :active-effect "(on (spend 20) (inc money 4))"))
-(defconst tr--sample-corp-2
-  (tr-corporation-create
-   :number 2
-   :name "Ecoline"
-   :tags '(plant)
-   :effect [(inc plant-production 2) (inc money 36) (inc plant 3)]
-   :active-effect "(set greenery-cost 7)"))
-(defconst tr--sample-corp-2
-  (tr-corporation-create
-   :number 3
-   :name "Helion"
-   :tags '(space)
-   :effect [(inc heat-production 3) (inc money 42)]
-   :active-effect "(set heat-as-money t)"))
-(defconst tr--sample-corp-3
-  (tr-corporation-create
-   :number 3
-   :tags '(space)
-   :effect [(inc heat-production 3) (inc money 42)]
-   :active-effect "(set heat-as-money t)"))
-(defconst tr--sample-corp-4
-  (tr-corporation-create
-   :number 4
-   :name "Mining Guild"
-   :tags '(building building)
-   :effect [(inc money 30) (inc steel 5) (inc steel-production 1)]
-   :active-effect "(on gain-board-steel-or-titanium (inc steel-production 1))"))
-(defconst tr--sample-corp-5
-  (tr-corporation-create
-   :number 5
-   :name "Interplanetary Cinematics"
-   :tags '(building)
-   :effect [(inc money 30) (inc steel 20)]
-   :active-effect "(on (play-tag event) (inc money 2))"))
 
 (defun tr-sample-deck ()
   (list tr--sample-card-1 tr--sample-card-2 tr--sample-card-3 tr--sample-card-4 tr--sample-card-5 tr--sample-card-6 tr--sample-card-7
@@ -651,6 +615,7 @@
         tr--sample-card-25 tr--sample-card-26 tr--sample-card-27))
 
 (defun tr--sample-corporation-deck ()
+  
   (list tr--sample-corp-1 tr--sample-corp-2 tr--sample-corp-3 tr--sample-corp-4 tr--sample-corp-5))
 
 (defun tr--extract-action (effect)
@@ -659,6 +624,7 @@
     ('add-ocean 'empty-ocean)
     ('add-city 'standard-city-placement)
     ('add-greenery 'standard-greenery-placement)
+    ('buy effect)
     ('or effect)
     (_ nil)))
 
@@ -699,6 +665,9 @@
     ('card tr--card-char)
     ('every-city (concat (tr--char->decrease-any "[") tr--city-tag
                          (tr--char->decrease-any "]")))
+    ('microbe "🦠")
+    ('animal "🐾")
+    ('rating "TR")
     (_ "?")))
 
 (defun tr-effect-to-string (clause)
@@ -706,6 +675,8 @@
   (pcase clause
     ('() "")
     (`(inc ,resource ,amt)
+     (format "+%d%s" amt (tr-resource-type-to-string resource)))
+    (`(add ,resource ,amt)
      (format "+%d%s" amt (tr-resource-type-to-string resource)))
     (`(inc-per ,resource ,by)
      (format "+%s/%s"
@@ -724,6 +695,12 @@
      "+℃")
     (`(add-ocean)
      "+H₂O")
+    (`(add-city)
+     "+🏙️")
+    (`(add-noctis-city)
+     "+🏙️*")
+    (`(add-non-adjacent-city)
+     "+🏙️*")
     (`(-> ,cost ,action)
      (format "%s%s%s"
              (tr-effect-to-string cost)
@@ -731,6 +708,18 @@
              (tr-effect-to-string action)))
     (`(action ,disp ,_)
      disp)
+    (`(draw-cards-keep-some ,ct ,buy)
+     (if (= 1 ct)
+         "Look at top card, buy or discard"
+       (format "Look at top %d cards, buy or discard" ct)))
+    (`(add-modifier ,descr ,_flag)
+     descr)
+    ((pred (lambda (clause) (eql (car clause) 'or)))
+     (string-join
+      (seq-map
+       #'tr-effect-to-string
+       (cdr clause))
+      "|"))
     (_ (format "%s" clause))))
 
 (defun tr-requirements-to-string (requirements)
@@ -744,6 +733,8 @@
             ('titanium-production
              (tr--char->prod tr--titanium-char))
             ('oxygen "O₂")
+            ('tempurature "°C")
+            ('science-tag "⚛")
             (_ (error "undefined left %s" left))))
          (cmp-str
           (pcase cmp
@@ -794,7 +785,10 @@
             (tr-continuous-effect-to-string (tr-card-continuous-effect item)))))
 
 (cl-defmethod tr-line-string ((item tr-corporation))
-  (format "%s %s" (tr-corporation-name item) (tr-effects-to-string (tr-corporation-effect item))))
+  (format "%s %s %s"
+          (tr-corporation-name item)
+          (tr-effects-to-string (tr-corporation-effect item))
+          (tr-effects-to-string (list (tr-corporation-continuous-effect item)))))
 
 (defun tr-card-propertized-name (card)
   (let* ((card-type (tr-card-type card))
@@ -834,6 +828,7 @@
     (tr-game-state
      (:constructor tr-game-state-create)
      (:copier nil))
+  all-cards
   gameboard
   players
   deck
@@ -846,20 +841,22 @@
   state)
 
 (defun tr--new-game-state (player-ct)
-  (tr-game-state-create
-   :gameboard (tr--initial-board-tharsis)
-   :players (seq-map (lambda (player-no)
-                       (tr-player-create
-                        :id (intern (format "player%d" player-no))))
-                     (number-sequence 1 player-ct))
-   :param-ocean 0
-   :param-tempurature 0
-   :param-oxygen 0
-   :generation 1
-   :passed-players '()
-   :deck (tr-sample-deck)
-   :state 'start
-   :corporation-deck (tr--sample-corporation-deck)))
+  (let ((initial-deck (tr-card-generate-deck)))
+    (tr-game-state-create
+     :gameboard (tr--initial-board-tharsis)
+     :players (seq-map (lambda (player-no)
+                         (tr-player-create
+                          :id (intern (format "player%d" player-no))))
+                       (number-sequence 1 player-ct))
+     :param-ocean 0
+     :param-tempurature 0
+     :param-oxygen 0
+     :generation 1
+     :passed-players '()
+     :all-cards initial-deck
+     :deck initial-deck
+     :state 'start
+     :corporation-deck (tr-card-generate-corporation-deck))))
 
 (defun tr--game-state-player-ct ()
   (length (tr-game-state-players tr-game-state)))
@@ -1513,7 +1510,7 @@
                    '(warn "No projects selected"))
                   (t
                    (let* ((proj-count (length projects))
-                          (msg (format "%d project(s) selected. Cost: $%d. Remaining:"
+                          (msg (format "%d project(s) selected. Cost: $%d."
                                        proj-count
                                        (* proj-count 3))))
                      (list 'info msg)))))
@@ -1529,9 +1526,12 @@
                        :items ,projects
                        :type multiple)]
    :validation (lambda (projects)
-                 (list 'info "Select cards to purchase"))
+                 (let* ((money (tr-player-money tr-active-player)))
+                   (cond
+                    ((< money (* 3 (length projects)))
+                     '(error "Not enough Money"))
+                    (t '(info "Select cards to purchase")))))
    :on-confirm (lambda (projects)
-                 ;;  TODO
                  (tr-submit-response
                   tr-active-player
                   (list projects)))))
@@ -1546,7 +1546,9 @@
       (`(select-starting-cards ,corps ,cards)
        (tr--select-starting-cards-selection corps cards))
       (`(select-research-cards ,cards)
-       (tr--select-research-cards cards)))))
+       (tr--select-research-cards cards))
+      ((pred (lambda (expr) (eql (car expr) 'selection)))
+       (apply #'tr-selection (cdr request))))))
 
 (defun tr--display-arg-selection ()
   "Display the main message prompting the user to select an argument."
@@ -1557,7 +1559,9 @@
     ('standard-city-placement
      (insert "Please select a title to place city."))
     ('standard-greenery-placement
-     (insert "Please select a title to place greenery."))))
+     (insert "Please select a title to place greenery."))
+    ((pred (lambda (expr) (eql (car expr) 'selection)))
+     (apply #'tr-selection (cdr (tr-current-pending-arg))))))
 
 (defun tr--display-hand ()
   "Display the players current hand."
@@ -1596,6 +1600,8 @@
 
 
 ;;; Game Flow
+
+(defvar tr-interstitial-action nil)
 
 ;; States:
 ;; start
@@ -1769,12 +1775,29 @@
              (cl-incf ct))))
        ct))))
 
+(defun tr--project-action-inventors-guild (this player)
+  (let ((card (car (tr-!draw-cards 1))))
+    (setq tr-interstitial-action
+          `(selection
+            :title ,(format "Buy Card %s?"
+                            (tr-line-string card))
+            :items [(options ((yes . "Buy (3$)")
+                              (no . "Don't buy")))]
+            :validation (lambda (_) '(info ""))
+            :on-confirm (lambda (selection)
+                          (when (eql selection yes)
+                            (tr-add-card-to-players-hand ,player ,card))
+                          (tr-submit-response ,player nil))))))
+
 (defun tr-!run-effect (effect &optional params card)
   (unless tr-active-player
     (error "No active player's turn."))
   (seq-do
    (lambda (action)
      (pcase action
+       ('nil nil)
+       (`(inc-tempurature)
+        (tr-!increase-tempurature 1))
        (`(inc-param tempurature ,amount)
         (tr-!increase-tempurature amount))
        (`(inc ,resource ,amount)
@@ -1784,6 +1807,13 @@
           (tr-!increment-user-resource resource amt)))
        (`(dec ,resource ,amount)
         (tr-!increment-user-resource resource (- amount)))
+       (`(buy ,resource ,amount)
+        (let ((resource-amt (pop params))
+              (resource-sell-amt
+               (tr-get-player-resource-sell-amount tr-active-player resource))
+              (new-price (max (- amount (* resource-amt resource-sell-amt)) 0)))
+          (tr-!increment-user-resource 'money (- new-price))
+          (tr-!increment-user-resource resource (- amount))))
        (`(add-ocean)
         (let ((location (pop params)))
           (tr-!place-ocean location)))
@@ -1795,6 +1825,31 @@
           (tr-!place-city location)))
        (`(action ,_msg ,action-lambda)
         (funcall action-lambda card tr-active-player))
+       (`(draw-cards-keep-some ,ct ,_purchase)
+        (let ((projects (tr-!draw-cards ct)))
+          (setq tr-interstitial-action
+                `(selection
+                  :title "Optionally Purchase Projects"
+                  :items [(selection :title "Projects"
+                                     :items ,projects
+                                     :type multiple)]
+                  :validation (lambda (projects)
+                                (let ((cost (* 3 (length projects))))
+                                  (cond
+                                   ((> cost (tr-player-money ,tr-active-player))
+                                    '(error "Not enough money"))
+                                   (t
+                                    (let* ((proj-count (length projects))
+                                           (msg (format "%d project(s) selected. Cost: $%d" proj-count (* proj-count 3))))
+                                      (list 'info msg))))))
+                  :on-confirm (lambda (projects)
+                                (tr-add-projects-to-players-hand ,tr-active-player projects)
+                                (tr-submit-response
+                                 tr-active-player
+                                 nil))))))
+       (`(dec-other ,resource ,amt)
+        ;; TODO - not implemented
+        )
        (_ (error "Action not implemented: %s" action))))
    effect))
 
@@ -1968,34 +2023,42 @@
   (tr->request tr-active-player (tr-actions-for tr-active-player)
                #'tr-action-performed))
 
+(defun interstitial-action-performed (player &optional _action)
+  "Callback for PLAYER after interstitial action performed."
+  (tr-action-step))
+
 ;; TODO: I don't like how the actions spec is all over the place...
 (defun tr-action-performed (player action)
   "Generic PLAYER action of specification ACTION"
   (unless (tr-player-p player)
     (error "Invalid type (terraform-player-p %s)" player))
-  (catch 'ignore-action-step
-    (pcase action
-      (`(projects ,project-id ,params)
-       (tr-!run-project project-id params))
-      (`(project-action ,card ,action ,params)
-       (tr-!run-action action params card))
-      (`(standard-projects power-plant ,_)
-       (tr-!run-effect [(dec money 11) (inc energy-production 1)]))
-      (`(standard-projects asteroid ,_)
-       (tr-!run-effect [(dec money 14) (inc-param tempurature 1)]))
-      (`(standard-projects aquifer ,args) ;; TODO change "location" to generic PARAMS
-       (tr-!run-effect [(dec money 18) (add-ocean)] args))
-      (`(standard-projects greenery ,args) ;; TODO change "location" to generic PARAMS
-       (tr-!run-effect [(dec money 23) (add-greenery)] args))
-      (`(standard-projects city ,args) ;; TODO change "location" to generic PARAMS
-       (tr-!run-effect [(dec money 25) (add-city)] args))
-      (`(standard-projects sell-patents ,card-ids) ;; TODO change "cards" to generic PARAMS
-       (tr-!discard-cards card-ids)
-       (tr-!increment-user-resource 'money (length card-ids)))
-      (`(extra pass)
-       (tr-!player-pass))
-      (_ (error "Invalid action response %s" action)))
-    (tr-action-step)))
+  (let ((tr-interstitial-action nil))
+    (catch 'ignore-action-step
+      (pcase action
+        (`(projects ,project-id ,params)
+         (tr-!run-project project-id params))
+        (`(project-action ,card ,action ,params)
+         (tr-!run-action action params card))
+        (`(standard-projects power-plant ,_)
+         (tr-!run-effect [(dec money 11) (inc energy-production 1)]))
+        (`(standard-projects asteroid ,_)
+         (tr-!run-effect [(dec money 14) (inc-param tempurature 1)]))
+        (`(standard-projects aquifer ,args) ;; TODO change "location" to generic PARAMS
+         (tr-!run-effect [(dec money 18) (add-ocean)] args))
+        (`(standard-projects greenery ,args) ;; TODO change "location" to generic PARAMS
+         (tr-!run-effect [(dec money 23) (add-greenery)] args))
+        (`(standard-projects city ,args) ;; TODO change "location" to generic PARAMS
+         (tr-!run-effect [(dec money 25) (add-city)] args))
+        (`(standard-projects sell-patents ,card-ids) ;; TODO change "cards" to generic PARAMS
+         (tr-!discard-cards card-ids)
+         (tr-!increment-user-resource 'money (length card-ids)))
+        (`(extra pass)
+         (tr-!player-pass))
+        (_ (error "Invalid action response %s" action)))
+      (if tr-interstitial-action
+          (tr->request tr-active-player tr-interstitial-action
+                       #'interstitial-action-performed)
+        (tr-action-step)))))
 
 (defun tr-!research-projects-selected (player cards)
   (setf (tr-player-hand player)

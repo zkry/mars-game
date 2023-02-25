@@ -21,8 +21,23 @@
 ;; This package contains card definitions for the game.
 
 ;;; Code:
-
 (defconst terraform-card-effect-registry nil)
+
+(defun terraform-card-effect-by-id (id)
+  (seq-find
+   (lambda (effect)
+     (eql (car effect) id))
+   terraform-card-effect-registry))
+
+(defun terraform-card-effect-lighter (effect)
+  "Return the lighter element of registered EFFECT."
+  (nth 3 effect))
+(defun terraform-card-extra-action (effect)
+  "Return the extra-action element of registered EFFECT."
+  (nth 2 effect))
+(defun terraform-card-effect-action (effect)
+  "Return the action element of registered EFFECT."
+  (nth 4 effect))
 
 (defvar terraform-active-card)
 (defvar terraform-active-user)
@@ -42,22 +57,27 @@
 (defvar terraform--action-arrow)
 
 
-(defun terraform-card-register-effect (effect-name param-list lighter-fn effect-fn)
-  (add-to-list 'terraform-card-effect-registry (list effect-name param-list lighter-fn effect-fn) t #'equal))
+(defun terraform-card-register-effect (effect-name param-list extra-action lighter-fn effect-fn)
+  (add-to-list 'terraform-card-effect-registry (list effect-name param-list extra-action lighter-fn effect-fn) t #'equal))
 
 (defmacro terraform-card-def-effect (name params &rest body)
   (declare (indent 2))
   (let* ((keyw)
-         (lighter))
+         (lighter)
+         (extra-action))
     (while (keywordp (setq keyw (car body)))
       (setq body (cdr body))
       (pcase keyw
-        (:lighter (setq lighter (purecopy (pop body))))))
+        (:lighter (setq lighter (purecopy (pop body))))
+        (:extra-action (setq extra-action (pop body)))))
     `(terraform-card-register-effect
       ',name
       ',params
+      (lambda ,params
+        ,extra-action)
       (lambda ,params ,lighter)
-      (lambda ,params ,@body))))
+      (lambda ,params
+        ,@body))))
 
 (terraform-card-def-effect inc (resource amt)
   :lighter (format "+%d%s" amt (terraform-resource-type-to-string resource))
@@ -79,6 +99,7 @@
                                      ('titanium terraform--titanium-char)
                                      ('steel terraform--steel-char))))
              (format "-%d%s(%s)" amt terraform--money-char purchase-symbol))
+  :extra-action (list 'buy resource amt)
   (let ((resource-amt (pop params))
         (resource-sell-amt
          (terraform-get-player-resource-sell-amount terraform-active-player resource))
@@ -100,18 +121,24 @@
 
 (terraform-card-def-effect add-ocean ()
   :lighter "+🌊"
-  (let ((location (pop params)))
-    (terraform-!place-ocean location)))
+  :extra-action 'empty-ocean
+  (lambda (param)
+    (let ((location param))
+      (terraform-!place-ocean location))))
 
 (terraform-card-def-effect add-greenery ()
   :lighter "+🌳"
-  (let ((location (pop params)))
-    (terraform-!place-greenery location)))
+  :extra-action 'standard-greenery-placement
+  (lambda (param)
+    (let ((location param))
+      (terraform-!place-greenery location))))
 
 (terraform-card-def-effect add-city ()
   :lighter "+🏙️"
-  (let ((location (pop params)))
-    (terraform-!place-city location)))
+  :extra-action standard-city-placement ;; TODO - rename :extra-action to extra-input
+  (lambda (param)
+    (let ((location param))
+      (terraform-!place-city location))))
 
 (terraform-card-def-effect add-noctis-city ()
   :lighter "+🏙️*")

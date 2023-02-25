@@ -261,13 +261,11 @@
 
 (defun tr--extract-action (effect)
   "Return extra parameter required from a specific action."
-  (pcase (car effect)
-    ('add-ocean 'empty-ocean)
-    ('add-city 'standard-city-placement)
-    ('add-greenery 'standard-greenery-placement)
-    ('buy effect)
-    ('or effect)
-    (_ nil)))
+  (let* ((effect-id (car effect))
+         (effect-params (cdr effect))
+         (registered-effect (tr-card-effect-by-id effect-id))
+         (extra-action-func (tr-card-extra-action registered-effect)))
+    (apply extra-action-func effect-params)))
 
 (defun tr--extract-card-actions (card)
   (let* ((effects (tr-card-effect card)))
@@ -290,55 +288,15 @@
 
 (defun tr-effect-to-string (clause)
   "Convert a card effect data description to a string."
-  (pcase clause
-    ('() "")
-    (`(inc ,resource ,amt)
-     (format "+%d%s" amt (tr-resource-type-to-string resource)))
-    (`(add ,resource ,amt)
-     (format "+%d%s" amt (tr-resource-type-to-string resource)))
-    (`(inc-per ,resource ,by)
-     (format "+%s/%s"
-             (tr-resource-type-to-string resource)
-             (tr-resource-type-to-string by)))
-    (`(buy ,resource ,amt)
-     (let* ((purchase-symbol (pcase resource
-                               ('titanium tr--titanium-char)
-                               ('steel tr--steel-char))))
-       (format "-%d%s(%s)" amt tr--money-char purchase-symbol)))
-    (`(dec ,resource ,amt)
-     (format "-%d%s" amt (tr-resource-type-to-string resource)))
-    (`(dec-other ,resource ,amt)
-     (format "-%d%s" amt (tr--char->decrease-any (tr-resource-type-to-string resource))))
-    (`(inc-tempurature)
-     "+℃")
-    (`(add-ocean)
-     "+H₂O")
-    (`(add-city)
-     "+🏙️")
-    (`(add-noctis-city)
-     "+🏙️*")
-    (`(add-non-adjacent-city)
-     "+🏙️*")
-    (`(-> ,cost ,action)
-     (format "%s%s%s"
-             (tr-effect-to-string cost)
-             tr--action-arrow
-             (tr-effect-to-string action)))
-    (`(action ,disp ,_)
-     disp)
-    (`(draw-cards-keep-some ,ct ,buy)
-     (if (= 1 ct)
-         "Look at top card, buy or discard"
-       (format "Look at top %d cards, buy or discard" ct)))
-    (`(add-modifier ,descr ,_flag)
-     descr)
-    ((pred (lambda (clause) (eql (car clause) 'or)))
-     (string-join
-      (seq-map
-       #'tr-effect-to-string
-       (cdr clause))
-      "|"))
-    (_ (format "%s" clause))))
+  (if (not clause)
+      ""
+    (let* ((effect-id (car clause))
+           (effect-params (cdr clause))
+           (effect-entry (terraform-card-effect-by-id effect-id))
+           (lighter-func (terraform-card-effect-lighter effect-entry)))
+      (unless effect-entry
+        (error "Unknown effect %s" effect-id))
+      (apply lighter-func effect-params))))
 
 (defun tr-requirements-to-string (requirements)
   (if (not requirements)
@@ -1246,6 +1204,7 @@
 
 (defvar tr-pending-request nil)
 (defvar tr-active-player nil)
+(defvar tr-active-card nil)
 (defvar tr-action-no nil)
 
 (defvar tr-pending-arg-request nil
@@ -1432,63 +1391,18 @@
     (error "No active player's turn."))
   (seq-do
    (lambda (action)
-     (pcase action
-       ('nil nil)
-       (`(inc-tempurature)
-        (tr-!increase-tempurature 1))
-       (`(inc-param tempurature ,amount)
-        (tr-!increase-tempurature amount))
-       (`(inc ,resource ,amount)
-        (tr-!increment-user-resource resource amount))
-       (`(inc-per ,resource ,thing)
-        (let* ((amt (tr--count-thing thing)))
-          (tr-!increment-user-resource resource amt)))
-       (`(dec ,resource ,amount)
-        (tr-!increment-user-resource resource (- amount)))
-       (`(buy ,resource ,amount)
-        (let ((resource-amt (pop params))
-              (resource-sell-amt
-               (tr-get-player-resource-sell-amount tr-active-player resource))
-              (new-price (max (- amount (* resource-amt resource-sell-amt)) 0)))
-          (tr-!increment-user-resource 'money (- new-price))
-          (tr-!increment-user-resource resource (- amount))))
-       (`(add-ocean)
-        (let ((location (pop params)))
-          (tr-!place-ocean location)))
-       (`(add-greenery)
-        (let ((location (pop params)))
-          (tr-!place-greenery location)))
-       (`(add-city)
-        (let ((location (pop params)))
-          (tr-!place-city location)))
-       (`(action ,_msg ,action-lambda)
-        (funcall action-lambda card tr-active-player))
-       (`(draw-cards-keep-some ,ct ,_purchase)
-        (let ((projects (tr-!draw-cards ct)))
-          (setq tr-interstitial-action
-                `(selection
-                  :title "Optionally Purchase Projects"
-                  :items [(selection :title "Projects"
-                                     :items ,projects
-                                     :type multiple)]
-                  :validation (lambda (projects)
-                                (let ((cost (* 3 (length projects))))
-                                  (cond
-                                   ((> cost (tr-player-money ,tr-active-player))
-                                    '(error "Not enough money"))
-                                   (t
-                                    (let* ((proj-count (length projects))
-                                           (msg (format "%d project(s) selected. Cost: $%d" proj-count (* proj-count 3))))
-                                      (list 'info msg))))))
-                  :on-confirm (lambda (projects)
-                                (tr-add-projects-to-players-hand ,tr-active-player projects)
-                                (tr-submit-response
-                                 tr-active-player
-                                 nil))))))
-       (`(dec-other ,resource ,amt)
-        ;; TODO - not implemented
-        )
-       (_ (error "Action not implemented: %s" action))))
+     (when action
+       (let* ((tr-active-card card)
+              (effect-id (car action))
+              (effect-params (cdr action))
+              (effect-definition (tr-card-effect-by-id effect-id))
+              (param-required-p (terraform-card-extra-action effect-definition))
+              (action-func (terraform-card-effect-action effect-definition)))
+         (unless action-func
+           (error "no effect defined for %s" action))
+         (if param-required-p
+             (funcall (apply action-func effect-params) (pop params) )
+           (apply action-func effect-params)))))
    effect))
 
 (defun tr-!run-action (action params card)

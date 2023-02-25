@@ -22,6 +22,150 @@
 
 ;;; Code:
 
+(defconst terraform-card-effect-registry nil)
+
+(defvar terraform-active-card)
+(defvar terraform-active-user)
+(declare-function terraform-effect-to-string "terraform.el")
+(declare-function terraform-resource-type-to-string "terraform.el")
+(declare-function terraform-card-resource-count "terraform.el")
+(declare-function terraform-!increment-user-resource "terraform.el")
+(declare-function terraform--char->decrease-any "terraform.el")
+(declare-function terraform--count-thing "terraform.el")
+(declare-function terraform-!increase-tempurature "terraform.el")
+(declare-function terraform-!place-ocean "terraform.el")
+(declare-function terraform-!place-greenery "terraform.el")
+(declare-function terraform-!place-city "terraform.el")
+(defvar terraform--titanium-char)
+(defvar terraform--steel-char)
+(defvar terraform--money-char)
+(defvar terraform--action-arrow)
+
+
+(defun terraform-card-register-effect (effect-name param-list lighter-fn effect-fn)
+  (add-to-list 'terraform-card-effect-registry (list effect-name param-list lighter-fn effect-fn) t #'equal))
+
+(defmacro terraform-card-def-effect (name params &rest body)
+  (declare (indent 2))
+  (let* ((keyw)
+         (lighter))
+    (while (keywordp (setq keyw (car body)))
+      (setq body (cdr body))
+      (pcase keyw
+        (:lighter (setq lighter (purecopy (pop body))))))
+    `(terraform-card-register-effect
+      ',name
+      ',params
+      (lambda ,params ,lighter)
+      (lambda ,params ,@body))))
+
+(terraform-card-def-effect inc (resource amt)
+  :lighter (format "+%d%s" amt (terraform-resource-type-to-string resource))
+  (terraform-!increment-user-resource resource amt))
+
+(terraform-card-def-effect add (resource amt)
+  :lighter (format "+%d%s" amt (terraform-resource-type-to-string resource))
+  (cl-incf (terraform-card-resource-count terraform-active-card)))
+
+(terraform-card-def-effect inc-per (resource by)
+  :lighter (format "+%s/%s"
+             (terraform-resource-type-to-string resource)
+             (terraform-resource-type-to-string by))
+  (let* ((amt (terraform--count-thing thing)))
+    (terraform-!increment-user-resource resource amt)))
+
+(terraform-card-def-effect buy (resource amt)
+  :lighter (let* ((purchase-symbol (pcase resource
+                                     ('titanium terraform--titanium-char)
+                                     ('steel terraform--steel-char))))
+             (format "-%d%s(%s)" amt terraform--money-char purchase-symbol))
+  (let ((resource-amt (pop params))
+        (resource-sell-amt
+         (terraform-get-player-resource-sell-amount terraform-active-player resource))
+        (new-price (max (- amount (* resource-amt resource-sell-amt)) 0)))
+    (terraform-!increment-user-resource 'money (- new-price))
+    (terraform-!increment-user-resource resource (- amount))))
+
+(terraform-card-def-effect dec (resource amt)
+  :lighter (format "-%d%s" amt (terraform-resource-type-to-string resource))
+  (terraform-!increment-user-resource resource (- amount)))
+
+(terraform-card-def-effect dec-other (resource amt)
+  :lighter (format "-%d%s" amt (terraform--char->decrease-any (terraform-resource-type-to-string resource)))
+  ())
+
+(terraform-card-def-effect inc-tempurature ()
+  :lighter "+℃"
+  (terraform-!increase-tempurature 1))
+
+(terraform-card-def-effect add-ocean ()
+  :lighter "+🌊"
+  (let ((location (pop params)))
+    (terraform-!place-ocean location)))
+
+(terraform-card-def-effect add-greenery ()
+  :lighter "+🌳"
+  (let ((location (pop params)))
+    (terraform-!place-greenery location)))
+
+(terraform-card-def-effect add-city ()
+  :lighter "+🏙️"
+  (let ((location (pop params)))
+    (terraform-!place-city location)))
+
+(terraform-card-def-effect add-noctis-city ()
+  :lighter "+🏙️*")
+
+(terraform-card-def-effect add-non-adjacent-city ()
+  :lighter "+🏙️*")
+
+(terraform-card-def-effect action (disp lambda)
+  :lighter disp
+  (funcall action-lambda terraform-active-card terraform-active-player))
+
+(terraform-card-def-effect -> (cost action)
+  :lighter (format "%s%s%s"
+                   (terraform-effect-to-string cost)
+                   terraform--action-arrow
+                   (terraform-effect-to-string action))
+  )
+
+(terraform-card-def-effect draw-cards-keep-some (ct buy)
+  :lighter (if (= 1 ct)
+               "Look at top card, buy or discard"
+             (format "Look at top %d cards, buy or discard" ct))
+  (let ((projects (terraform-!draw-cards ct)))
+    (setq terraform-interstitial-action
+          `(selection
+            :title "Optionally Purchase Projects"
+            :items [(selection :title "Projects"
+                               :items ,projects
+                               :type multiple)]
+            :validation (lambda (projects)
+                          (let ((cost (* 3 (length projects))))
+                            (cond
+                             ((> cost (terraform-player-money ,terraform-active-player))
+                              '(error "Not enough money"))
+                             (t
+                              (let* ((proj-count (length projects))
+                                     (msg (format "%d project(s) selected. Cost: $%d" proj-count (* proj-count 3))))
+                                (list 'info msg))))))
+            :on-confirm (lambda (projects)
+                          (terraform-add-projects-to-players-hand ,terraform-active-player projects)
+                          (terraform-submit-response
+                           terraform-active-player
+                           nil))))))
+
+(terraform-card-def-effect add-modifier (descr flag)
+  :lighter descr)
+
+(terraform-card-def-effect or (&rest clauses)
+  :lighter (string-join
+            (seq-map
+             #'terraform-effect-to-string
+             clauses)
+            "|"))
+
 (defvar terraform-card-directory (make-hash-table :test 'equal))
 (defvar terraform-card-corporation-directory (make-hash-table :test 'equal))
 
@@ -137,9 +281,9 @@
   :action '[(-> (dec money 1)
                 (action "🦠*:SCI"
                         (lambda (this player)
-                          (let ((card (car (tr-!draw-cards 1))))
-                            (when (member 'microbe (tr-card-tags card))
-                              (cl-incf (tr-card-resource-count this)))))))])
+                          (let ((card (car (terraform-!draw-cards 1))))
+                            (when (member 'microbe (terraform-card-tags card))
+                              (cl-incf (terraform-card-resource-count this)))))))])
 
 (terraform-card-def "Inventors' Guild"
   :number 6
@@ -166,11 +310,11 @@
   :effect [(dec energy-production 2) (inc money-production 5)]
   :victory-points
   (lambda (this)
-    (let ((tile (tr-get-tile-by-name 'capital)))
+    (let ((tile (terraform-get-tile-by-name 'capital)))
       (when tile
         (length (seq-filter
                  (lambda (tile) (eql (plist-get tile :top) 'ocean))
-                 (tr-get-adjacent-tiles)))))))
+                 (terraform-get-adjacent-tiles)))))))
 
 (terraform-card-def "Asteroid"
   :number 9
@@ -309,7 +453,7 @@
   :action [(-> (remove any-animal 1)
                (add-token 1))]
   :victory-points
-  (lambda (this) (tr-card-resource-count this)))
+  (lambda (this) (terraform-card-resource-count this)))
 
 (terraform-card-def "Space Station"
   :number 25

@@ -210,325 +210,6 @@
   effect
   resource-count)
 
-(defconst tr--sample-card-1
-  ;; TODO - Global parameter requirement O2
-  (tr-card-create
-   :number 1
-   :name "Colonizer Training Camp"
-   :cost 8
-   :tags '(jovian building)
-   :victory-points 2
-   :type 'automated))
-(defconst tr--sample-card-2
-  ;; TODO - Global parameter requirement production
-  (tr-card-create
-   :number 2
-   :name "Asteroid Mining Consortium"
-   :cost 13
-   :tags '(jovian)
-   :victory-points 1
-   :requirements '(> titanium-production 0)
-   :type 'automated
-   :effect [(dec-other titanium-production 1) (inc titanium-production 1)]))
-(defconst tr--sample-card-3
-  (tr-card-create
-   :number 3
-   :name "Deep Well Heating"
-   :cost 13
-   :type 'automated
-   :tags '(power building)
-   :effect [(inc-tempurature) (inc energy-production 1)]))
-(defconst tr--sample-card-4
-  (tr-card-create
-   :number 4
-   :name "Cloud Seeding"
-   :cost 11
-   :type 'automated
-   :requirements '(>= ocean 3)
-   :effect [(dec money-production 1) (inc heat-production 1) (inc plant-production 2)]))
-(defconst tr--sample-card-5
-  (tr-card-create
-   :number 5
-   :name "Search For Life"
-   :cost 13
-   :type 'active
-   :tags '(science)
-   :victory-points '(* resource 3)
-   :requirements '(<= oxygen 6)
-   :type 'active
-   :action '[(-> (dec money 1)
-                 (action "🦠*:SCI"
-                         (lambda (this player)
-                           (let ((card (car (tr-!draw-cards 1))))
-                             (when (member 'microbe (tr-card-tags card))
-                               (cl-incf (tr-card-resource-count this)))))))]))
-(defconst tr--sample-card-6
-  (tr-card-create
-   :number 6
-   :name "Inventors' Guild"
-   :cost 9
-   :type 'active
-   :tags '(science)
-   :action '[(-> nil
-                 (draw-cards-keep-some 1 t))]))
-(defconst tr--sample-card-7
-  (tr-card-create
-   :number 7
-   :name "Martian Rails"
-   :cost 13
-   :type 'active
-   :tags '(building)
-   :action '[(-> (dec energy 1)
-                 (inc-per money every-city))]))
-(defconst tr--sample-card-8
-  (tr-card-create
-   :number 8
-   :name "Capital"
-   :cost 26
-   :type 'automated
-   :tags '(city building)
-   :tile 'capital
-   :requirements '(>= ocean 4)
-   :effect [(dec energy-production 2) (inc money-production 5)]
-   :victory-points
-   (lambda (this)
-     (let ((tile (tr-get-tile-by-name 'capital)))
-       (when tile
-         (length (seq-filter
-                  (lambda (tile) (eql (plist-get tile :top) 'ocean))
-                  (tr-get-adjacent-tiles))))))))
-(defconst tr--sample-card-9
-  (tr-card-create
-   :number 9
-   :name "Asteroid"
-   :cost 14
-   :type 'event
-   :tags '(space event)
-   :effect [(inc-tempurature) (inc titanium 5) (dec-other plant 3)]))
-(defconst tr--sample-card-10
-  (tr-card-create
-   :number 10
-   :name "Comet"
-   :cost 21
-   :type 'event
-   :tags '(space event)
-   :effect [(inc-tempurature) (add-ocean) (dec-other plant 3)]))
-(defconst tr--sample-card-11
-  (tr-card-create
-   :number 11
-   :name "Big Asteroid"
-   :cost 27
-   :type 'event
-   :tags '(space event)
-   :effect [(inc-tempurature) (inc-tempurature) (inc titanium 4) (dec-other plant 4)]))
-(defconst tr--sample-card-12
-  (tr-card-create
-   :number 12
-   :name "Water Import From Europa"
-   :cost 25
-   :type 'active
-   :tags '(space jovian)
-   :action '[(-> (buy titanium 12)
-                 (add-ocean))]
-   :victory-points (lambda () (error "not implemented"))))
-(defconst tr--sample-card-13
-  (tr-card-create
-   :number 13
-   :cost  27
-   :name "Space Elevator"
-   :type 'active
-   :tags '(space building)
-   :action '[(-> (dec steel 1)
-                 (inc money 5))]
-   :effect [(inc titanium-production 1)]
-   :victory-points 2))
-(defconst tr--sample-card-14
-  (tr-card-create
-   :number 14
-   :cost 11
-   :name "Development Center"
-   :tags '(science building)
-   :type 'active
-   :action '[(-> (dec energy 1)
-                 (inc card 1))]))
-(defconst tr--sample-card-15
-  (tr-card-create
-   :number 15
-   :name "Equatorial Magnetizer"
-   :tags '(building)
-   :type 'active
-   :cost 11
-   :action '[(-> (dec energy-production 1)
-                 (inc rating 1))]))
-(defconst tr--sample-card-16
-  (tr-card-create
-   :number 16
-   :name "Domed Crater"
-   :tags '(city building)
-   :type 'automated
-   :cost 24
-   :requirements `(<= oxygen 7)
-   :effect [(dec energy-production 1)
-            (inc money-production 3)
-            (add-city)
-            (inc plant 3)]))
-(defconst tr--sample-card-17
-  (tr-card-create
-   :number 17
-   :name "Noctis City"
-   :cost 18
-   :type 'automated
-   :tags '(city building)
-   :effect [(dec energy-production 1)
-            (inc money-production 3)
-            (add-noctis-city)]))
-
-(defconst tr--sample-card-18
-  (tr-card-create
-   :number 18
-   :name "Methane From Titan"
-   :cost 28
-   :requirements '(>= oxygen 2)
-   :type 'automated
-   :tags '(jovian space)
-   :effect [(inc heat-production 2)
-            (inc platn-production 2)]
-   :victory-points 2))
-
-(defconst tr--sample-card-19
-  (tr-card-create
-   :number 19
-   :name "Imported Hydrogen"
-   :cost 16
-   :requirements nil
-   :type 'event
-   :tags '(earth space)
-   :effect [(or (inc plant 3) (add microbe 3) (add animal 2))
-            (add-ocean)]))
-
-(defconst tr--sample-card-20
-  (tr-card-create
-   :number 20
-   :name "Research Outpost"
-   :cost 18
-   :requirements nil
-   :type 'active
-   :tags '(science city building)
-   :effect [(add-non-adjacent-city)]
-   :continuous-effect '(add-modifier ":-1$" (reduce-project-cost 1))))
-
-(defconst tr--sample-card-21
-  (tr-card-create
-   :number 21
-   :name "Phobos Space Haven"
-   :cost 25
-   :requirements nil
-   :type 'automated
-   :tags '(city space)
-   :effect [(inc titanium-production 1)
-            (add-phobos-space-haven-city)]
-   :victory-points 3))
-
-(defconst tr--sample-card-22
-  (tr-card-create
-   :number 22
-   :name "Black Polar Dust"
-   :cost 15
-   :requirements  nil
-   :type 'automated
-   :tags '()
-   :effect [(dec money-production 2) (inc heat-production 3) (add-ocean)]))
-
-(defconst tr--sample-card-23
-  (tr-card-create
-   :number 23
-   :name "Arctic Algae"
-   :cost 12
-   :requirements '(<= tempurature -12) ;; TODO : right unit?
-   :tags '(plant)
-   :effect [(inc plant 1)]
-   :continuous-effect '(on ocean-placed (inc plant 2))))
-
-(defconst tr--sample-card-24
-  (tr-card-create
-   :number 24
-   :name "Predators"
-   :cost 14
-   :requirements  '(>= oxygen 11)
-   :type 'active
-   :tags '(animal)
-   :action [(-> (remove any-animal 1)
-                (add-token 1))]
-   :victory-points
-   (lambda (this) (tr-card-resource-count this))))
-
-(defconst tr--sample-card-25
-  (tr-card-create
-   :number 25
-   :name "Space Station"
-   :cost 10
-   :requirements nil
-   :type 'automated
-   :tags '(space)
-   :continuous-effect '(add-modifier
-                        ":space::-2$"
-                        (reduce-cost-for-tag space 2))
-   :action [(-> )]
-   :victory-points 1))
-
-(defconst tr--sample-card-26
-  (tr-card-create
-   :number 26
-   :name "EOS Chasma National Park"
-   :cost 16
-   :requirements '(>= tempurature -12)
-   :type 'automated
-   :tags '(plant building)
-   :effect [(add animal 1)
-            (inc plant 3)
-            (inc money-production 2)]
-   :victory-points 1))
-
-(defconst tr--sample-card-27
-  (tr-card-create
-   :number 27
-   :name "Interstellar Colony Ship"
-   :cost 24
-   :requirements '(>= science-tag 5)
-   :type 'event
-   :tags '(earth space)
-   :victory-points 4))
-
-;; (defconst tr--sample-card-
-;;   (tr-card-create
-;;    :number 
-;;    :name ""
-;;    :cost 
-;;    :requirements 
-;;    :type 
-;;    :tags '()
-;;    :effect []
-;;    :continuous-effect nil
-;;    :action [(-> )]
-;;    :victory-points))
-
-;;; CARD TEMPLATE
-;; (defconst tr--sample-card-
-;;   (tr-card-create
-;;    :number 
-;;    :name ""
-;;    :cost 
-;;    :requirements 
-;;    :type 
-;;    :tags '()
-;;    :effect []
-;;    :continuous-effect nil
-;;    :action [(-> )]
-;;    :victory-points))
-
-
-
-
 (defconst tr--standard-projects
   `(,(tr-card-create
       :number 'power-plant
@@ -561,35 +242,6 @@
       :cost 25
       :effect [(add-city)])))
 
-(defconst tr-all-cards
-  (list tr--sample-card-1
-        tr--sample-card-2
-        tr--sample-card-3
-        tr--sample-card-4
-        tr--sample-card-5
-        tr--sample-card-6
-        tr--sample-card-7
-        tr--sample-card-8
-        tr--sample-card-9
-        tr--sample-card-10
-        tr--sample-card-11
-        tr--sample-card-12
-        tr--sample-card-13
-        tr--sample-card-14
-        tr--sample-card-15
-        tr--sample-card-16
-        tr--sample-card-17
-        tr--sample-card-18
-        tr--sample-card-19
-        tr--sample-card-20
-        tr--sample-card-21
-        tr--sample-card-22
-        tr--sample-card-23
-        tr--sample-card-24
-        tr--sample-card-25
-        tr--sample-card-26
-        tr--sample-card-27))
-
 (defun tr-card-by-id (id)
   "Return the card of the given ID."
   (seq-find (lambda (card)
@@ -606,17 +258,6 @@
   continuous-effect
   action
   first-move)
-
-(defun tr-sample-deck ()
-  (list tr--sample-card-1 tr--sample-card-2 tr--sample-card-3 tr--sample-card-4 tr--sample-card-5 tr--sample-card-6 tr--sample-card-7
-        tr--sample-card-8 tr--sample-card-9 tr--sample-card-10 tr--sample-card-11 tr--sample-card-12
-        tr--sample-card-13 tr--sample-card-14 tr--sample-card-15 tr--sample-card-16 tr--sample-card-17 tr--sample-card-18
-        tr--sample-card-19 tr--sample-card-20 tr--sample-card-21 tr--sample-card-22 tr--sample-card-23 tr--sample-card-24
-        tr--sample-card-25 tr--sample-card-26 tr--sample-card-27))
-
-(defun tr--sample-corporation-deck ()
-  
-  (list tr--sample-corp-1 tr--sample-corp-2 tr--sample-corp-3 tr--sample-corp-4 tr--sample-corp-5))
 
 (defun tr--extract-action (effect)
   "Return extra parameter required from a specific action."
@@ -644,31 +285,8 @@
               (* (tr-get-player-resource-sell-amount tr-active-player resource)
                  (tr-get-requirement-count resource))))))))
 
-
 
 ;;; Generic Functions
-
-(defun tr-resource-type-to-string (type)
-  (pcase type
-    ('money-production (tr--char->prod tr--money-char))
-    ('money tr--money-char)
-    ('plant-production (tr--char->prod tr--plant-char))
-    ('plant tr--plant-char)
-    ('steel-production (tr--char->prod tr--steel-char))
-    ('steel tr--steel-char)
-    ('titanium-production (tr--char->prod tr--titanium-char))
-    ('titanium tr--titanium-char)
-    ('energy-production (tr--char->prod tr--energy-char))
-    ('energy tr--energy-char)
-    ('heat-production (tr--char->prod tr--heat-char))
-    ('heat tr--heat-char)
-    ('card tr--card-char)
-    ('every-city (concat (tr--char->decrease-any "[") tr--city-tag
-                         (tr--char->decrease-any "]")))
-    ('microbe "🦠")
-    ('animal "🐾")
-    ('rating "TR")
-    (_ "?")))
 
 (defun tr-effect-to-string (clause)
   "Convert a card effect data description to a string."
@@ -864,6 +482,10 @@
 ;;
 (setq tr-game-state (tr--new-game-state 1))
 ;; (tr-game-state-deck (tr--new-game-state 1))
+
+(defun tr--get-other-options (resource-type)
+  "Return all users with RESOURCE-TYPE."
+  )
 
 
 ;;; Board
@@ -1365,7 +987,9 @@
                                     ('player2 'tr-player2-face)
                                     ('player3 'tr-player3-face)
                                     ('player4 'tr-player4-face)))
-                      (or "???"))))
+                      (or (if (tr-player-corp-card player)
+                              (truncate-string-to-width (tr-corporation-name (tr-player-corp-card player)) 9)
+                            "???")))))
            (lambda (_player)
              "+------------+")
            (lambda (player)

@@ -485,7 +485,21 @@
 
 (defun tr--get-other-options (resource-type)
   "Return all users with RESOURCE-TYPE."
-  )
+  (let* ((players (tr-game-state-players tr-game-state))
+         (ress))
+    (dolist (player players)
+      (if (memq resource-type '(microbe animal))
+          (let ((played-projects (tr-player-played player)))
+            (dolist (proj played-projects)
+              (when (memq resource-type (tr-card-tags proj))
+                (let* ((ct (tr-card-resource-count proj)))
+                  (when (> ct 0)
+                    (push (list player proj ct) ress))))))
+        (let* ((tr-active-player player)
+               (ct (tr-get-requirement-count resource-type)))
+          (when (> ct 0)
+            (push (list player ct) ress)))))
+    ress))
 
 
 ;;; Board

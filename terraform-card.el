@@ -21,23 +21,10 @@
 ;; This package contains card definitions for the game.
 
 ;;; Code:
-(defconst terraform-card-effect-registry nil)
 
-(defun terraform-card-effect-by-id (id)
-  (seq-find
-   (lambda (effect)
-     (eql (car effect) id))
-   terraform-card-effect-registry))
-
-(defun terraform-card-effect-lighter (effect)
-  "Return the lighter element of registered EFFECT."
-  (nth 3 effect))
-(defun terraform-card-extra-action (effect)
-  "Return the extra-action element of registered EFFECT."
-  (nth 2 effect))
-(defun terraform-card-effect-action (effect)
-  "Return the action element of registered EFFECT."
-  (nth 4 effect))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; CARD EFFECTS ;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defvar terraform-active-card)
 (defvar terraform-active-user)
@@ -56,28 +43,54 @@
 (defvar terraform--money-char)
 (defvar terraform--action-arrow)
 
+(defconst terraform-card-effect-registry nil)
 
-(defun terraform-card-register-effect (effect-name param-list extra-action lighter-fn effect-fn)
-  (add-to-list 'terraform-card-effect-registry (list effect-name param-list extra-action lighter-fn effect-fn) t #'equal))
+(defun terraform-card-effect-by-id (id)
+  (seq-find
+   (lambda (effect)
+     (eql (car effect) id))
+   terraform-card-effect-registry))
+
+(defun terraform-card-effect-lighter (effect)
+  "Return the lighter element of registered EFFECT."
+  (nth 3 effect))
+(defun terraform-card-extra-action (effect)
+  "Return the extra-action element of registered EFFECT."
+  (nth 2 effect))
+(defun terraform-card-effect-action (effect)
+  "Return the action element of registered EFFECT."
+  (nth 4 effect))
+(defun terraform-card-effect-requirement (effect)
+  "Return the requirement of registered EFFECT."
+  (nth 5 effect))
+
+(defun terraform-card-register-effect (effect-name param-list extra-action lighter-fn effect-fn requirement)
+  (add-to-list 'terraform-card-effect-registry (list effect-name param-list extra-action lighter-fn effect-fn requirement)
+               t #'equal))
 
 (defmacro terraform-card-def-effect (name params &rest body)
   (declare (indent 2))
   (let* ((keyw)
          (lighter)
-         (extra-action))
+         (extra-action)
+         (requirement))
     (while (keywordp (setq keyw (car body)))
       (setq body (cdr body))
       (pcase keyw
         (:lighter (setq lighter (purecopy (pop body))))
-        (:extra-action (setq extra-action (pop body)))))
+        (:extra-action (setq extra-action (pop body)))
+        (:requirement (setq requirement (purecopy (pop body))))))
     `(terraform-card-register-effect
       ',name
       ',params
-      (lambda ,params
-        ,extra-action)
+      ,(when extra-action
+           `(lambda ,params
+             ,extra-action))
       (lambda ,params ,lighter)
       (lambda ,params
-        ,@body))))
+        ,@body)
+      `(when requirement
+         `(lambda ,params ,requirement)))))
 
 (terraform-card-def-effect inc (resource amt)
   :lighter (format "+%d%s" amt (terraform-resource-type-to-string resource))
@@ -109,11 +122,33 @@
 
 (terraform-card-def-effect dec (resource amt)
   :lighter (format "-%d%s" amt (terraform-resource-type-to-string resource))
-  (terraform-!increment-user-resource resource (- amount)))
+  (terraform-!increment-user-resource resource (- amt)))
 
 (terraform-card-def-effect dec-other (resource amt)
   :lighter (format "-%d%s" amt (terraform--char->decrease-any (terraform-resource-type-to-string resource)))
-  ())
+  :requirement (or (not (terraform--production-resource-p resource))
+                   (> (length (terraform--get-other-options resource amt)) 0))
+  :extra-action (let* ((title-string (format "Select user to decrease %d%s"
+                                             amt
+                                             (terraform-resource-type-to-string resource)))
+                       (options (seq-map
+                                 (lambda (option)
+                                   (cons option (format "{%s}" option)))
+                                 (terraform--get-other-options resource amt)))
+                       (options (if (not (terraform--production-resource-p resource))
+                                    (cons (cons 'skip "Skip")
+                                          options)
+                                  options)))
+                  `(selection
+                    :title ,title-string
+                    :items [(selection :tile "Choose One"
+                                       :items ,options
+                                       :type one)]
+                    :validation (lambda (_) '(info ""))
+                    :on-confirm (lambda (selection)
+                                  (tr--process-arg-selection selection))))
+  (lambda (selection)
+    (message "TODO Decremen action performed: %s" selection)))
 
 (terraform-card-def-effect inc-tempurature ()
   :lighter "+℃"
@@ -145,6 +180,10 @@
 
 (terraform-card-def-effect add-non-adjacent-city ()
   :lighter "+🏙️*")
+
+(terraform-card-def-effect add-phobos-space-haven-city ()
+  :lighter "+🏙️*"
+  nil)
 
 (terraform-card-def-effect action (disp lambda)
   :lighter disp
@@ -192,6 +231,14 @@
              #'terraform-effect-to-string
              clauses)
             "|"))
+
+(terraform-card-def-effect on (event handler)
+  :lighter (format "%s:%s" event (terraform-effect-to-string handler))
+  nil)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; CARDS ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defvar terraform-card-directory (make-hash-table :test 'equal))
 (defvar terraform-card-corporation-directory (make-hash-table :test 'equal))
@@ -465,7 +512,7 @@
 (terraform-card-def "Arctic Algae"
   :number 23
   :cost 12
-  :type 'automated
+  :type 'active
   :requirements '(<= tempurature -12) ;; TODO : right unit?
   :tags '(plant)
   :effect [(inc plant 1)]
@@ -477,7 +524,7 @@
   :requirements  '(>= oxygen 11)
   :type 'active
   :tags '(animal)
-  :action [(-> (remove any-animal 1)
+  :action [(-> (remove-other any-animal 1)
                (add-token 1))]
   :victory-points
   (lambda (this) (terraform-card-resource-count this)))
@@ -512,18 +559,29 @@
   :tags '(earth space)
   :victory-points 4)
 
+(defun terraform-randomize (elts &optional from)
+  (when (listp elts)
+    (setq elts (seq-into elts 'vector)))
+  (unless from
+    (setq from 0))
+  (when (< from (length elts))
+    (let* ((random-idx (+ (random (- (length elts) from)) from))
+           (swap-elt (aref elts random-idx))
+           (from-elt (aref elts from)))
+      (aset elts from swap-elt)
+      (aset elts random-idx from-elt)
+      (terraform-randomize elts (1+ from))))
+  elts)
+
 (defun terraform-card-generate-deck ()
-  ;; TODO: Shuffle deck
-  (let* ((ids (hash-table-keys terraform-card-directory)))
+  (let* ((ids (terraform-randomize (hash-table-keys terraform-card-directory))))
     (seq-map
      (lambda (id)
        (apply #'terraform-card-create (gethash id terraform-card-directory)))
      ids)))
 
-(terraform-card-generate-deck)
-
 (defun terraform-card-generate-corporation-deck ()
-  (let* ((ids (hash-table-keys terraform-card-corporation-directory)))
+  (let* ((ids (terraform-randomize (hash-table-keys terraform-card-corporation-directory))))
     (seq-map
      (lambda (id)
        (apply #'terraform-corporation-create (gethash id terraform-card-corporation-directory)))

@@ -265,7 +265,8 @@
          (effect-params (cdr effect))
          (registered-effect (tr-card-effect-by-id effect-id))
          (extra-action-func (tr-card-extra-action registered-effect)))
-    (apply extra-action-func effect-params)))
+    (when extra-action-func
+      (apply extra-action-func effect-params))))
 
 (defun tr--extract-card-actions (card)
   (let* ((effects (tr-card-effect card)))
@@ -397,8 +398,9 @@
 (defun tr-oxygen-to-ct (oxygen)
   (/ (+ oxygen 30) 2))
 
-(defun tr-ct-to-oxygen (oxygen)
-  (- (* oxygen 2) 30))
+(defun tr-ct-to-tempurature (ct)
+  "Convert tempurature index CT to tempurature in degrees celcius."
+  (- (* ct 2) 30))
 
 (cl-defstruct
     (tr-game-state
@@ -441,7 +443,10 @@
 (setq tr-game-state (tr--new-game-state 1))
 ;; (tr-game-state-deck (tr--new-game-state 1))
 
-(defun tr--get-other-options (resource-type)
+(defun tr--production-resource-p (resource)
+  (string-suffix-p "-production" (symbol-name resource)))
+
+(defun tr--get-other-options (resource-type &optional amt)
   "Return all users with RESOURCE-TYPE."
   (let* ((players (tr-game-state-players tr-game-state))
          (ress))
@@ -457,7 +462,12 @@
                (ct (tr-get-requirement-count resource-type)))
           (when (> ct 0)
             (push (list player ct) ress)))))
-    ress))
+    (if amt
+        (seq-filter
+         (lambda (elt)
+           (>= (car (last elt)) amt))
+         ress)
+      ress)))
 
 
 ;;; Board
@@ -1315,6 +1325,8 @@
        (setf (tr-player-hand tr-active-player)
              (append (tr-player-hand tr-active-player)
                      cards))))
+    ('rating
+     (cl-incf (tr-player-rating tr-active-player) amount))
     (_ (error "incrementing unknown resource: %s" resource))))
 
 (defun tr-!increase-tempurature (amt)
@@ -1494,7 +1506,8 @@
     ('heat-production (tr-player-heat-production tr-active-player))
     ('heat (tr-player-heat tr-active-player))
     ('ocean (tr-game-state-param-ocean tr-game-state))
-    ('oxygen (tr-ct-to-oxygen (tr-game-state-param-oxygen tr-game-state)))))
+    ('oxygen (tr-game-state-param-oxygen tr-game-state))
+    ('tempurature (tr-ct-to-tempurature (tr-game-state-param-tempurature tr-game-state)))))
 
 (defun tr-requirements-satisfied-p (requirements)
   (pcase requirements
@@ -1518,9 +1531,19 @@
        (seq-filter
         (lambda (card)
           (let ((cost (tr-card-cost card))
-                (requirements (tr-card-requirements card)))
+                (requirements (tr-card-requirements card))
+                (effects (tr-card-effect card)))
             (and (>= money cost)
-                 (tr-requirements-satisfied-p requirements))))
+                 (tr-requirements-satisfied-p requirements)
+                 (or (not requirements)
+                     (seq-every-p (lambda (effect)
+                                    (let* ((effect-id (car effect))
+                                           (effect-params (cdr effect))
+                                           (effect-data (tr-card-effect-by-id effect-id))
+                                           (requirement (tr-card-effect-requirement effect-data)))
+                                      (or (not requirement)
+                                          (apply requirement effect-params))))
+                                  effects)))))
         hand)))))
 
 (defun tr-playable-project-actions-for (player)

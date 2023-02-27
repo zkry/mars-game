@@ -109,14 +109,14 @@
     (<= (+ (abs q) (abs r) (abs s)) 8)))
 
 (defun tr--gameboard-adjacent-tiles (pt)
-  (seq-let (q r s) coord
-    (let ((adjacents `((,q ,(1+ r) ,(1- s))
-                       (,q ,(1- r) ,(1+ s))
-                       (,(1+ q) ,(1- r) ,s)
-                       (,(1- q) ,(1+ r) ,s)
-                       (,(1+ q) ,r ,(1- s))
-                       (,(1- q) ,r ,(1+ s))))
-          (valid-adjacents (seq-filter #'tr--valid-coordinate-p adjacents)))
+  (seq-let (q r s) pt
+    (let* ((adjacents `((,q ,(1+ r) ,(1- s))
+                        (,q ,(1- r) ,(1+ s))
+                        (,(1+ q) ,(1- r) ,s)
+                        (,(1- q) ,(1+ r) ,s)
+                        (,(1+ q) ,r ,(1- s))
+                        (,(1- q) ,r ,(1+ s))))
+           (valid-adjacents (seq-filter #'tr--valid-coordinate-p adjacents)))
       (seq-map #'tr--gameboard-tile-at valid-adjacents))))
 
 (defun tr--tile-empty-ocean-p (tile)
@@ -382,6 +382,10 @@
             card-name
             (tr-effects-to-string (tr-card-action card)))))
 
+(cl-defmethod tr-line-string ((item cons))
+  (cdr item))
+
+
 
 ;;; Game State
 ;; The game state is stored in the tr-game-state struct which contains
@@ -583,9 +587,19 @@
 ;; tags
 (defconst tr--city-tag "🏙️")
 (defconst tr--microbe-tag "🦠️")
+(defconst tr--building-tag "🏗️")
+(defconst tr--space-tag "🌠")
+(defconst tr--science-tag "🔬")
+(defconst tr--power-tag "⚡")
+(defconst tr--earth-tag "🌎")
+(defconst tr--jovian-tag (propertize "♃" 'font-lock-face '(:height 150 :background "#AF6E12" :box "#EBC388" :foreground "white")))
+(defconst tr--venus-tag (propertize "V" 'font-lock-face '(:height 150 :background "#0A73B0" :foreground "white")))
+(defconst tr--plant-tag "🌱")
+(defconst tr--animal-tag "🐾")
+(defconst tr--wild-tag "❓")
+(defconst tr--event-tag "⬇️")
 
-
-(defconst tr--action-arrow (propertize "→" 'font-lock-face '(:foreground "red" :weight bold) ))
+(defconst tr--action-arrow (propertize "→" 'font-lock-face '(:foreground "red" :weight bold)))
 
 (defun tr--char->decrease-any (char)
   "Add properties to CHAR to make it indicate production."
@@ -951,7 +965,7 @@
   (insert (format "Generation: %d   Ocean:%d/9   Temp:%s   O₂:%s\n"
                   (tr-game-state-generation tr-game-state)
                   (tr-game-state-param-ocean tr-game-state)
-                  (tr-game-state-param-tempurature tr-game-state)
+                  (tr-ct-to-tempurature (tr-game-state-param-tempurature tr-game-state))
                   (tr-game-state-param-oxygen tr-game-state))))
 
 (defun tr--display-player-panel ()

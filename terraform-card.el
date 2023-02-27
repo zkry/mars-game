@@ -104,7 +104,7 @@
   :lighter (format "+%s/%s"
              (terraform-resource-type-to-string resource)
              (terraform-resource-type-to-string by))
-  (let* ((amt (terraform--count-thing thing)))
+  (let* ((amt (terraform--count-thing resource)))
     (terraform-!increment-user-resource resource amt)))
 
 (terraform-card-def-effect buy (resource amt)
@@ -122,6 +122,9 @@
 
 (terraform-card-def-effect dec (resource amt)
   :lighter (format "-%d%s" amt (terraform-resource-type-to-string resource))
+  :requirement (if (eql resource 'money-production)
+                   (>= (- (tr-get-requirement-count resource) amt) -5) ;; TODO: parameterize this number
+                 (>= (- (tr-get-requirement-count resource) amt) 0))
   (terraform-!increment-user-resource resource (- amt)))
 
 (terraform-card-def-effect dec-other (resource amt)
@@ -133,6 +136,18 @@
                                              (terraform-resource-type-to-string resource)))
                        (options (seq-map
                                  (lambda (option)
+                                   (pcase option
+                                     (`(,player ,card ,amt)
+                                      (format "From %s(%s) on card %s remove %d"
+                                              (terraform-corporation-name (terraform-player-corp-card player))
+                                              (terraform-player-id player)
+                                              (terraform-card-name card)
+                                              amt))
+                                     (`(,player ,amt)
+                                      (format "From %s(%s) remove %d"
+                                              (terraform-corporation-name (terraform-player-corp-card player))
+                                              (terraform-player-id player)
+                                              amt)))
                                    (cons option (format "{%s}" option)))
                                  (terraform--get-other-options resource amt)))
                        (options (if (not (terraform--production-resource-p resource))
@@ -141,14 +156,17 @@
                                   options)))
                   `(selection
                     :title ,title-string
-                    :items [(selection :tile "Choose One"
+                    :items [(selection :title "Choose One"
                                        :items ,options
                                        :type one)]
                     :validation (lambda (_) '(info ""))
                     :on-confirm (lambda (selection)
-                                  (tr--process-arg-selection selection))))
+                                  (terraform--process-arg-selection selection))))
   (lambda (selection)
     (message "TODO Decremen action performed: %s" selection)))
+
+(terraform-card-def-effect remove-other (resource amt)
+  :lighter (format ))
 
 (terraform-card-def-effect inc-tempurature ()
   :lighter "+℃"
@@ -533,10 +551,10 @@
   :number 25
   :cost 10
   :requirements nil
-  :type 'automated
+  :type 'active
   :tags '(space)
-  :continuous-effect '(add-modifier
-                       ":space::-2$"
+  :continuous-effect `(add-modifier
+                       (format "%s:-2%s" terraform--space-tag terraform--money-char)
                        (reduce-cost-for-tag space 2))
   :victory-points 1)
 

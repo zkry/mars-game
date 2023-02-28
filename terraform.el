@@ -108,6 +108,7 @@
   (seq-let (q r s) coord
     (<= (+ (abs q) (abs r) (abs s)) 8)))
 
+
 (defun tr--gameboard-adjacent-tiles (pt)
   (seq-let (q r s) pt
     (let* ((adjacents `((,q ,(1+ r) ,(1- s))
@@ -320,7 +321,7 @@
              (tr--char->prod tr--titanium-char))
             ('oxygen "O₂")
             ('tempurature "°C")
-            ('science-tag "⚛")
+            ('science-tag tr--science-tag)
             (_ (error "undefined left %s" left))))
          (cmp-str
           (pcase cmp
@@ -519,6 +520,11 @@
 (defface tr-greenery-face
   '((t :foreground "#719B11"))
   "Face for greenery tiles."
+  :group 'terraform)
+
+(defface tr-city-face
+  '((t :foreground "gray"))
+  "Face for city tiles"
   :group 'terraform)
 
 ;; resources 
@@ -795,6 +801,15 @@
         (put-text-property i (1+ i) 'face 'alert-moderate-face str))))
   str)
 
+(defun tr--board-adjacent-city-p (pt)
+  (seq-find
+   (lambda (top)
+     (eql top 'city))
+   (seq-map
+    (lambda (tile)
+      (plist-get tile :top))
+    (tr--gameboard-adjacent-tiles pt))))
+
 (defun tr--board-line (pt line-no)
   (let* ((line-length (if (memq line-no '(0 3)) 5 7))
          (content (if (= line-no 3)
@@ -802,7 +817,7 @@
                         (let ((bottom-pt (list q (1+ r) (1- s))))
                           (if (or (tr--in-board-p pt)
                                   (tr--in-board-p bottom-pt))
-                              " _ _ "
+                              (copy-sequence " _ _ ")
                             "     ")))
                     (make-string line-length ?\s))))
     (if (not (tr--in-board-p pt))
@@ -820,14 +835,20 @@
           (tr--board-line-top-city at-tile line-no))
          ((eql top 'special)
           (tr--board-line-top-special at-tile line-no))
-         ((eql type 'ocean)
+         ((eql type 'ocean) ;; EMPTY OCEAN
           (if (eql (tr-current-pending-arg) 'empty-ocean)
               (tr--highlight-tile
                (tr--board-line-ocean at-tile line-no))
             (tr--board-line-ocean at-tile line-no)))
-         (name
-          (tr--board-line-name at-tile line-no))
-         (t content))))))
+         (t ;; EMPTY LAND
+          (let* ((line (if name (tr--board-line-name at-tile line-no) content)))
+            (if (not (tr--valid-coordinate-p pt))
+                line
+              (cond
+               ((and (eql (tr-current-pending-arg) 'standard-city-placement)
+                     (not (tr--board-adjacent-city-p pt)))
+                (tr--highlight-tile line))
+               (t line))))))))))
 
 (defun tr--display-board ()
   (let ((parts '((" "
@@ -1249,13 +1270,7 @@
 
 (defun tr--process-arg-selection (selection)
   (when (tr-current-pending-arg)
-    (let ((ok (pcase (tr-current-pending-arg)
-                ('empty-ocean
-                 (tr--tile-empty-ocean-p (tr--gameboard-tile-at selection)))
-                ('standard-greenery-placement
-                 nil)
-                ('standard-city-placement
-                 nil))))
+    (let ((ok t)) ;; TODO should I do validation here???
       (when ok
         (tr-push-arg selection)
         (when (not tr-pending-arg-request)

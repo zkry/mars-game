@@ -182,13 +182,19 @@
                                        :items ,options
                                        :type one)]
                     :validation (lambda (_) '(info ""))
-                    :on-confirm (lambda (selection)
-                                  (terraform--process-arg-selection selection))))
+                    :on-confirm (lambda (selection)  ;; TODO - probaly can do w/o player arg
+                                  (terraform-submit-response terraform-active-player selection))))
   (lambda (selection)
-    (message "TODO Decremen action performed: %s" selection)))
+    (pcase selection
+      ('(skip . _) nil)
+      (`(,player ,card ,amt)
+       (cl-decf (terraform-card-resource-count card) amt))
+      (`(,player ,amt)
+       (terraform-!increment-user-resource resource (- amt))))))
 
 (terraform-card-def-effect inc-tempurature ()
   :lighter "+℃"
+  (terraform-!increment-user-resource 'rating 1)
   (terraform-!increase-tempurature 1))
 
 (terraform-card-def-effect add-ocean ()
@@ -196,6 +202,7 @@
   :extra-action 'empty-ocean
   (lambda (param)
     (let ((location param))
+      (terraform-!increment-user-resource 'rating 1)
       (terraform-!place-ocean location))))
 
 (terraform-card-def-effect add-greenery ()
@@ -203,18 +210,19 @@
   :extra-action 'standard-greenery-placement
   (lambda (param)
     (let ((location param))
+      (terraform-!increment-user-resource 'rating 1)
       (terraform-!place-greenery location))))
 
 (terraform-card-def-effect add-city ()
   :lighter "+🏙️"
-  :extra-action standard-city-placement ;; TODO - rename :extra-action to extra-input
+  :extra-action 'standard-city-placement ;; TODO - rename :extra-action to extra-input
   (lambda (param)
     (let ((location param))
       (terraform-!place-city location))))
 
 (terraform-card-def-effect add-noctis-city ()
   :lighter "+🏙️*"
-  (let ((location (tr--find-named-tile 'noctus)))
+  (let ((location (terraform--find-named-tile 'noctus)))
     (terraform-!place-city location)))
 
 (terraform-card-def-effect add-non-adjacent-city ()

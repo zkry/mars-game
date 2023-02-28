@@ -45,6 +45,28 @@
 
 (defconst terraform-card-effect-registry nil)
 
+(defun terraform-resource-type-to-string (type)
+  (pcase type
+    ('money-production (terraform--char->prod terraform--money-char))
+    ('money terraform--money-char)
+    ('plant-production (terraform--char->prod terraform--plant-char))
+    ('plant terraform--plant-char)
+    ('steel-production (terraform--char->prod terraform--steel-char))
+    ('steel terraform--steel-char)
+    ('titanium-production (terraform--char->prod terraform--titanium-char))
+    ('titanium terraform--titanium-char)
+    ('energy-production (terraform--char->prod terraform--energy-char))
+    ('energy terraform--energy-char)
+    ('heat-production (terraform--char->prod terraform--heat-char))
+    ('heat terraform--heat-char)
+    ('card terraform--card-char)
+    ('every-city (concat (terraform--char->decrease-any "[") terraform--city-tag
+                         (terraform--char->decrease-any "]")))
+    ('microbe "🦠")
+    ('animal "🐾")
+    ('rating "TR")
+    (_ "?")))
+
 (defun terraform-card-effect-by-id (id)
   (seq-find
    (lambda (effect)
@@ -89,7 +111,7 @@
       (lambda ,params ,lighter)
       (lambda ,params
         ,@body)
-      `(when requirement
+      ,(when requirement
          `(lambda ,params ,requirement)))))
 
 (terraform-card-def-effect inc (resource amt)
@@ -123,8 +145,8 @@
 (terraform-card-def-effect dec (resource amt)
   :lighter (format "-%d%s" amt (terraform-resource-type-to-string resource))
   :requirement (if (eql resource 'money-production)
-                   (>= (- (tr-get-requirement-count resource) amt) -5) ;; TODO: parameterize this number
-                 (>= (- (tr-get-requirement-count resource) amt) 0))
+                   (>= (- (terraform-get-requirement-count resource) amt) -5) ;; TODO: parameterize this number
+                 (>= (- (terraform-get-requirement-count resource) amt) 0))
   (terraform-!increment-user-resource resource (- amt)))
 
 (terraform-card-def-effect dec-other (resource amt)
@@ -165,9 +187,6 @@
   (lambda (selection)
     (message "TODO Decremen action performed: %s" selection)))
 
-(terraform-card-def-effect remove-other (resource amt)
-  :lighter (format ))
-
 (terraform-card-def-effect inc-tempurature ()
   :lighter "+℃"
   (terraform-!increase-tempurature 1))
@@ -194,7 +213,9 @@
       (terraform-!place-city location))))
 
 (terraform-card-def-effect add-noctis-city ()
-  :lighter "+🏙️*")
+  :lighter "+🏙️*"
+  (let ((location (tr--find-named-tile 'noctus)))
+    (terraform-!place-city location)))
 
 (terraform-card-def-effect add-non-adjacent-city ()
   :lighter "+🏙️*")
@@ -542,8 +563,8 @@
   :requirements  '(>= oxygen 11)
   :type 'active
   :tags '(animal)
-  :action [(-> (remove-other any-animal 1)
-               (add-token 1))]
+  :action [(-> (dec-other any-animal 1)
+               (add animal 1))]
   :victory-points
   (lambda (this) (terraform-card-resource-count this)))
 
@@ -554,7 +575,7 @@
   :type 'active
   :tags '(space)
   :continuous-effect `(add-modifier
-                       (format "%s:-2%s" terraform--space-tag terraform--money-char)
+                       ,(format "%s:-2%s" terraform--space-tag terraform--money-char)
                        (reduce-cost-for-tag space 2))
   :victory-points 1)
 

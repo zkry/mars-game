@@ -190,6 +190,15 @@
      :board main-board
      :extra-spaces (make-hash-table :test 'equal))))
 
+(defun tr--find-named-tile (name)
+  (let* ((board (tr-gameboard-board (tr-game-state-gameboard tr-game-state)))
+         (locations (hash-table-keys board)))
+    (seq-find
+     (lambda (location)
+       (let* ((tile (gethash location board)))
+         (eql (plist-get tile :name) name)))
+     locations)))
+
 
 ;;; Cards
 

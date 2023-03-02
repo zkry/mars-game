@@ -295,6 +295,19 @@
               (* (tr-get-player-resource-sell-amount tr-active-player resource)
                  (tr-get-requirement-count resource))))))))
 
+(defun tr-count-player-tags (player tag)
+  (let* ((played (tr-player-played player)))
+    (apply #'+
+           (seq-map
+            (lambda (project)
+              (seq-count
+               (lambda (proj-tag)
+                 (eql proj-tag tag))
+               (tr-card-tags project)))
+            played))))
+
+
+
 
 ;;; Generic Functions
 
@@ -431,7 +444,9 @@
   param-oxygen
   generation
   passed-players
-  state)
+  state
+  exodeck ;; cards taken out of deck
+  )
 
 (defun tr--new-game-state (player-ct)
   (let ((initial-deck (tr-card-generate-deck)))
@@ -449,7 +464,8 @@
      :all-cards initial-deck
      :deck initial-deck
      :state 'start
-     :corporation-deck (tr-card-generate-corporation-deck))))
+     :corporation-deck (tr-card-generate-corporation-deck)
+     :exodeck '())))
 
 (defun tr--game-state-player-ct ()
   (length (tr-game-state-players tr-game-state)))
@@ -648,8 +664,8 @@
                              :bottom-line ".~.~."))
     (greenery . (:border "♠"
                          :face tr-greenery-face
-                       :top-line '(" ♣" owner "♣")
-                       :bottom-line '(" ♣ ♣ ")))
+                         :top-line '(" ♣" owner "♣")
+                         :bottom-line '(" ♣ ♣ ")))
     (city . (:border '(" ### " "-" "-" "-" "-" "-" "-" "-")
                      :face tr-city-face
                      :top-line '(" #" owner "# ")
@@ -658,7 +674,7 @@
 (defun tr--format-edge (pt1 pt2 edge-char)
   "Return the propertized EDGE-CHAR of grid between PT1 and PT2."
   (if (not (or (tr--in-board-p pt1)
-           (tr--in-board-p pt2)))
+               (tr--in-board-p pt2)))
       " "
     (let* ((tile1 (tr--gameboard-tile-at pt1))
            (tile2 (tr--gameboard-tile-at pt2))
@@ -814,6 +830,15 @@
       (plist-get tile :top))
     (tr--gameboard-adjacent-tiles pt))))
 
+(defun tr--board-adjacent-to-own (pt)
+  (seq-find
+   (lambda (player)
+     (eql player (tr-player-id tr-active-player)))
+   (seq-map
+    (lambda (tile)
+      (plist-get tile :player))
+    (tr--gameboard-adjacent-tiles pt))))
+
 (defun tr--board-line (pt line-no)
   (let* ((line-length (if (memq line-no '(0 3)) 5 7))
          (content (if (= line-no 3)
@@ -851,6 +876,9 @@
               (cond
                ((and (eql (tr-current-pending-arg) 'standard-city-placement)
                      (not (tr--board-adjacent-city-p pt)))
+                (tr--highlight-tile line))
+               ((and (eql (tr-current-pending-arg) 'standard-greenery-placement)
+                     (tr--board-adjacent-to-own pt))
                 (tr--highlight-tile line))
                (t line))))))))))
 
@@ -920,8 +948,8 @@
              item))
       ('multiple
        (if (not (member item (nth idx tr-current-selection)))
-         (setf (nth idx tr-current-selection)
-               (cons item (nth idx tr-current-selection)))
+           (setf (nth idx tr-current-selection)
+                 (cons item (nth idx tr-current-selection)))
          (setf (nth idx tr-current-selection)
                (remove item (nth idx tr-current-selection))))))))
 
@@ -1009,17 +1037,17 @@
              "+------------+")
            (lambda (player)
              (let ((id (tr-player-id player)))
-              (format "|%2s%10s|"
-                      (propertize "  "
-                                  'font-lock-face
-                                  (pcase id
-                                    ('player1 'tr-player1-face)
-                                    ('player2 'tr-player2-face)
-                                    ('player3 'tr-player3-face)
-                                    ('player4 'tr-player4-face)))
-                      (or (if (tr-player-corp-card player)
-                              (truncate-string-to-width (tr-corporation-name (tr-player-corp-card player)) 9)
-                            "???")))))
+               (format "|%2s%10s|"
+                       (propertize "  "
+                                   'font-lock-face
+                                   (pcase id
+                                     ('player1 'tr-player1-face)
+                                     ('player2 'tr-player2-face)
+                                     ('player3 'tr-player3-face)
+                                     ('player4 'tr-player4-face)))
+                       (or (if (tr-player-corp-card player)
+                               (truncate-string-to-width (tr-corporation-name (tr-player-corp-card player)) 9)
+                             "???")))))
            (lambda (_player)
              "+------------+")
            (lambda (player)
@@ -1273,12 +1301,14 @@
   "The current list of arguments a user has provided to a cards action.")
 
 (defun tr--process-arg-selection (selection)
-  (when (tr-current-pending-arg)
-    (let ((ok t)) ;; TODO should I do validation here???
-      (when ok
-        (tr-push-arg selection)
-        (when (not tr-pending-arg-request)
-          (funcall tr-arg-callback tr-current-args))))))
+  (if (tr-current-pending-arg)
+      (let ((ok t)) ;; TODO should I do validation here???
+        (when ok
+          (tr-push-arg selection)
+          (when (not tr-pending-arg-request)
+            (funcall tr-arg-callback tr-current-args))))
+    ;; TODO - don't know if this is needed
+    (tr-display-board)))
 
 (defun tr-current-pending-arg ()
   (car tr-pending-arg-request))
@@ -1307,12 +1337,48 @@
     (setf (tr-game-state-corporation-deck tr-game-state) (seq-drop corp-deck 2))
     top-two))
 
+(defun tr-randomize (elts &optional from)
+  "Shuffle list of ELTS from FROM to the end recursively. "
+  (when (listp elts)
+    (setq elts (seq-into elts 'vector)))
+  (unless from
+    (setq from 0))
+  (when (< from (length elts))
+    (let* ((random-idx (+ (random (- (length elts) from)) from))
+           (swap-elt (aref elts random-idx))
+           (from-elt (aref elts from)))
+      (aset elts from swap-elt)
+      (aset elts random-idx from-elt)
+      (terraform-randomize elts (1+ from))))
+  (seq-into elts 'list))
+
+(defun tr-!reshuffle-deck ()
+  (let* ((new-deck '())
+         (exodeck (tr-game-state-exodeck tr-game-state))
+         (players (tr-game-state-players tr-game-state))
+         (player-projects (append (seq-mapcat #'tr-player-hand players)
+                                  (seq-mapcat #'tr-player-played players))))
+    (dolist (project exodeck)
+      (when (not (member project player-projects))
+        (push project new-deck)))
+    (let* ((shuffled-deck (tr-randomize new-deck)))
+      (setf (tr-game-state-deck tr-game-state) shuffled-deck))))
+
 (defun tr-!draw-cards (n)
   "Return N cards from the top of the deck.  Cards are removed from the deck."
-  (let* ((deck (tr-game-state-deck tr-game-state))
-         (top (seq-take deck n)))
-    (setf (tr-game-state-deck tr-game-state) (seq-drop deck n))
-    top))
+  (if (= n 0)
+      '()
+    (let* ((deck (tr-game-state-deck tr-game-state)))
+      (if (< (length deck) n)
+          (progn
+            (let ((cards1 (tr-!draw-cards (length deck))))
+              (tr-!reshuffle-deck)
+              (append cards1 (tr-!draw-cards (- n (length deck))))))
+        (let* ((exodeck (tr-game-state-exodeck tr-game-state))
+               (top (seq-take deck n)))
+          (setf (tr-game-state-exodeck tr-game-state) (append exodeck top))
+          (setf (tr-game-state-deck tr-game-state) (seq-drop deck n))
+          top)))))
 
 (defun tr-!discard-cards (card-ids)
   (let* ((hand (tr-player-hand tr-active-player))
@@ -1562,7 +1628,10 @@
     ('heat (tr-player-heat tr-active-player))
     ('ocean (tr-game-state-param-ocean tr-game-state))
     ('oxygen (tr-game-state-param-oxygen tr-game-state))
-    ('tempurature (tr-ct-to-tempurature (tr-game-state-param-tempurature tr-game-state)))))
+    ('tempurature (tr-ct-to-tempurature (tr-game-state-param-tempurature tr-game-state)))
+    ('science-tag (tr-count-player-tags tr-active-player 'science))
+    ('microbe-tag (tr-count-player-tags tr-active-player 'microbe))
+    ('plant-tag (tr-count-player-tags tr-active-player 'plant))))
 
 (defun tr-requirements-satisfied-p (requirements)
   (pcase requirements

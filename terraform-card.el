@@ -130,7 +130,7 @@
   :lighter (format "+%s/%s"
              (terraform-resource-type-to-string resource)
              (terraform-resource-type-to-string by))
-  (let* ((amt (terraform--count-thing resource)))
+  (let* ((amt (terraform--count-thing by)))
     (terraform-!increment-user-resource resource amt)))
 
 (terraform-card-def-effect buy (resource amt)
@@ -612,20 +612,6 @@
   :type 'event
   :tags '(earth space)
   :victory-points 4)
-
-(defun terraform-randomize (elts &optional from)
-  (when (listp elts)
-    (setq elts (seq-into elts 'vector)))
-  (unless from
-    (setq from 0))
-  (when (< from (length elts))
-    (let* ((random-idx (+ (random (- (length elts) from)) from))
-           (swap-elt (aref elts random-idx))
-           (from-elt (aref elts from)))
-      (aset elts from swap-elt)
-      (aset elts random-idx from-elt)
-      (terraform-randomize elts (1+ from))))
-  elts)
 
 (defun terraform-card-generate-deck ()
   (let* ((ids (terraform-randomize (hash-table-keys terraform-card-directory))))

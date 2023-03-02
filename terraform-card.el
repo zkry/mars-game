@@ -64,6 +64,10 @@
                          (terraform--char->decrease-any "]")))
     ('microbe "🦠")
     ('animal "🐾")
+    ('any-animal (concat
+                  (terraform--char->decrease-any "[")
+                  "🐾"
+                  (terraform--char->decrease-any "]")))
     ('rating "TR")
     (_ "?")))
 
@@ -183,14 +187,16 @@
                                        :type one)]
                     :validation (lambda (_) '(info ""))
                     :on-confirm (lambda (selection)  ;; TODO - probaly can do w/o player arg
-                                  (terraform-submit-response terraform-active-player selection))))
+                                  (tr--process-arg-selection selection))))
   (lambda (selection)
     (pcase selection
-      ('(skip . _) nil)
-      (`(,player ,card ,amt)
+      ('skip . ,_)
+      (`((,player ,card ,amt) . ,_)
        (cl-decf (terraform-card-resource-count card) amt))
-      (`(,player ,amt)
-       (terraform-!increment-user-resource resource (- amt))))))
+      (`((,player ,amt) . ,_)
+       (message "decreasing player by %d" amt)
+       (terraform-!increment-user-resource resource (- amt)))
+      (_ (error "option not recognized %s" selection)))))
 
 (terraform-card-def-effect inc-tempurature ()
   :lighter "+℃"
@@ -358,7 +364,8 @@
              :requirements ,requirements
              :effect ,effect
              :action ,action
-             :continuous-effect ,continuous-effect)
+             :continuous-effect ,continuous-effect
+             :used nil)
            terraform-card-directory))
 
 (terraform-card-def "Colonizer Training Camp"

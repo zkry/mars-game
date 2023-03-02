@@ -218,7 +218,8 @@
   action
   continuous-effect
   effect
-  resource-count)
+  resource-count
+  used)
 
 (defconst tr--standard-projects
   `(,(tr-card-create
@@ -463,9 +464,11 @@
 (defun tr--get-other-options (resource-type &optional amt)
   "Return all users with RESOURCE-TYPE."
   (let* ((players (tr-game-state-players tr-game-state))
+         (card-resource-p (memq resource-type '(microbe animal)))
+         (production-resource-p (tr--production-resource-p resource-type))
          (ress))
     (dolist (player players)
-      (if (memq resource-type '(microbe animal))
+      (if card-resource-p
           (let ((played-projects (tr-player-played player)))
             (dolist (proj played-projects)
               (when (memq resource-type (tr-card-tags proj))
@@ -479,7 +482,8 @@
     (if amt
         (seq-filter
          (lambda (elt)
-           (>= (car (last elt)) amt))
+           (or (not production-resource-p)
+               (>= (car (last elt)) amt)))
          ress)
       ress)))
 
@@ -992,7 +996,7 @@
 
 (defun tr--display-parameters ()
   "Display game parameters."
-  (insert (format "Generation: %d   Ocean:%d/9   Temp:%s   O₂:%s\n"
+  (insert (format "Generation: %d   Ocean:%d/9   Temp:%s/8   O₂:%s/14\n"
                   (tr-game-state-generation tr-game-state)
                   (tr-game-state-param-ocean tr-game-state)
                   (tr-ct-to-tempurature (tr-game-state-param-tempurature tr-game-state))
@@ -1335,29 +1339,40 @@
     (error "No active player's turn."))
   (pcase resource
     ('money
-     (cl-incf (tr-player-money tr-active-player) amount))
+     (setf (tr-player-money tr-active-player)
+           (max (+ (tr-player-money tr-active-player) amount) 0)))
     ('money-production
      (cl-incf (tr-player-money-production tr-active-player) amount))
     ('steel
-     (cl-incf (tr-player-steel tr-active-player) amount))
+     (setf (tr-player-steel tr-active-player)
+           (max (+ (tr-player-steel tr-active-player) amount) 0)))
     ('steel-production
-     (cl-incf (tr-player-steel-production tr-active-player) amount))
+     (setf (tr-player-steel-production tr-active-player)
+           (max (+ (tr-player-steel-production tr-active-player) amount) 0)))
     ('titanium
-     (cl-incf (tr-player-titanium tr-active-player) amount))
+     (setf (tr-player-titanium tr-active-player)
+           (max (+ (tr-player-titanium tr-active-player) amount) 0)))
     ('titanium-production
-     (cl-incf (tr-player-titanium-production tr-active-player) amount))
+     (setf (tr-player-titanium-production tr-active-player)
+           (max (+ (tr-player-titanium-production tr-active-player) amount) 0)))
     ('plant
-     (cl-incf (tr-player-plant tr-active-player) amount))
+     (setf (tr-player-plant tr-active-player)
+           (max (+ (tr-player-plant tr-active-player) amount) 0)))
     ('plant-production
-     (cl-incf (tr-player-plant-production tr-active-player) amount))
+     (setf (tr-player-plant-production tr-active-player)
+           (max (+ (tr-player-plant-production tr-active-player) amount) 0)))
     ('energy
-     (cl-incf (tr-player-energy tr-active-player) amount))
+     (setf (tr-player-energy tr-active-player)
+           (max (+ (tr-player-energy tr-active-player) amount) 0)))
     ('energy-production
-     (cl-incf (tr-player-energy-production tr-active-player) amount))
+     (setf (tr-player-energy-production tr-active-player)
+           (max (+ (tr-player-energy-production tr-active-player) amount) 0)))
     ('heat
-     (cl-incf (tr-player-heat tr-active-player) amount))
+     (setf (tr-player-heat tr-active-player)
+           (max (+ (tr-player-heat tr-active-player) amount) 0)))
     ('heat-production
-     (cl-incf (tr-player-heat-production tr-active-player) amount))
+     (setf (tr-player-heat-production tr-active-player)
+           (max (+ (tr-player-heat-production tr-active-player) amount) 0)))
     ('card
      (let ((cards (tr-!draw-cards amount)))
        (setf (tr-player-hand tr-active-player)
@@ -1498,6 +1513,8 @@
   (cl-incf (tr-game-state-generation tr-game-state))
   (setf (tr-game-state-passed-players tr-game-state) '())
   (dolist (player (tr-game-state-players tr-game-state))
+    (dolist (card (tr-player-hand player))
+      (setf (tr-card-used card) nil))
     (tr-player-generation player))
   ;; TODO: Rotate players
   (let* ((cards (tr-!draw-cards 4)))
@@ -1592,7 +1609,8 @@
        (tr-card-number project))
      (seq-filter
       (lambda (project)
-        (tr-card-action project))
+        (and (tr-card-action project)
+             (not (tr-card-used project))))
       hand))))
 
 (defun tr-standard-projects-for (player)
@@ -1651,11 +1669,12 @@
         (`(projects ,project-id ,params)
          (tr-!run-project project-id params))
         (`(project-action ,card ,action ,params)
-         (tr-!run-action action params card))
+         (tr-!run-action action params card)
+         (setf (tr-card-used card) t))
         (`(standard-projects power-plant ,_)
          (tr-!run-effect [(dec money 11) (inc energy-production 1)]))
         (`(standard-projects asteroid ,_)
-         (tr-!run-effect [(dec money 14) (inc-param tempurature 1)]))
+         (tr-!run-effect [(dec money 14) (inc-tempurature)]))
         (`(standard-projects aquifer ,args) ;; TODO change "location" to generic PARAMS
          (tr-!run-effect [(dec money 18) (add-ocean)] args))
         (`(standard-projects greenery ,args) ;; TODO change "location" to generic PARAMS

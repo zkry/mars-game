@@ -275,9 +275,15 @@
   (let* ((effect-id (car effect))
          (effect-params (cdr effect))
          (registered-effect (tr-card-effect-by-id effect-id))
-         (extra-action-func (tr-card-extra-action registered-effect)))
-    (when extra-action-func
-      (apply extra-action-func effect-params))))
+         (extra-action-func (tr-card-extra-action registered-effect))
+         (immediate-action-func (tr-card-immediate-action registered-effect)))
+    (cond
+     (immediate-action-func
+      (let ((value (apply immediate-action-func effect-params)))
+        (cons 'value value)))
+     (extra-action-func
+      (when extra-action-func
+      (apply extra-action-func effect-params))))))
 
 (defun tr--extract-card-actions (card)
   (let* ((effects (tr-card-effect card)))
@@ -1115,9 +1121,10 @@
             "   "
             (button-buttonize "[ ]"
                               (pcase-lambda (`(,project ,action))
-                                (pcase-let ((`(-> ,_cost ,effect) action))
+                                (pcase-let ((`(-> ,cost ,effect) action))
                                   (tr-get-args ;; TODO - bad name: action of card and action of user
-                                   (seq-filter #'identity (tr--extract-action effect)) 
+                                   (seq-filter #'identity
+                                               (seq-filter #'identity (seq-map #'tr--extract-action (vector cost effect)))) 
                                    (lambda (args)
                                      (tr-submit-response
                                       (car tr-pending-request)
@@ -1156,7 +1163,31 @@
                                        (lambda (_)
                                          (tr-submit-response (car tr-pending-request)
                                                              '((extra pass))))
-                                       nil))))))
+                                       nil)
+                     "\n"))
+      ('skip (insert "   "
+                     (button-buttonize "Skip"
+                                       (lambda (_)
+                                         (tr-submit-response (car tr-pending-request)
+                                                             '((extra skip))))
+                                       nil)
+                     "\n"))
+      ('heat-to-tempurature (insert "   "
+                                    (button-buttonize
+                                     "Convert heat to raise tempurature" ;; TODO amount
+                                     (lambda (_)
+                                       (tr-submit-response (car tr-pending-request)
+                                                           '((extra heat-to-tempurature))))
+                                     nil)
+                                    "\n"))
+      ('plant-to-greenery (insert "   "
+                                    (button-buttonize
+                                     "Convert plant to make greenery" ;; TODO amount
+                                     (lambda (_)
+                                       (tr-submit-response (car tr-pending-request)
+                                                           '((extra plant-to-greenery))))
+                                     nil)
+                                    "\n")))))
 
 (defun tr--display-standard-action-selection (actions)
   "Display the standard action selection input."
@@ -1301,14 +1332,16 @@
   "The current list of arguments a user has provided to a cards action.")
 
 (defun tr--process-arg-selection (selection)
-  (if (tr-current-pending-arg)
-      (let ((ok t)) ;; TODO should I do validation here???
-        (when ok
-          (tr-push-arg selection)
-          (when (not tr-pending-arg-request)
-            (funcall tr-arg-callback tr-current-args))))
-    ;; TODO - don't know if this is needed
-    (tr-display-board)))
+  (when (tr-current-pending-arg)
+    (let ((ok t)) ;; TODO should I do validation here???
+      (when ok
+        (tr-push-arg selection)
+        (when (not tr-pending-arg-request)
+          (funcall tr-arg-callback tr-current-args))
+        (when (and (listp (tr-current-pending-arg))
+                   (eql (car (tr-current-pending-arg)) 'value))
+          (tr--process-arg-selection (cdr (tr-current-pending-arg)))))))
+  (tr-display-board))
 
 (defun tr-current-pending-arg ()
   (car tr-pending-arg-request))
@@ -1328,7 +1361,10 @@
     (setq tr-pending-arg-request actions)
     (setq tr-current-args nil)
     (setq tr-arg-callback callback)
-    (tr-display-board)))
+    (tr-display-board)
+    (let ((pending-arg (tr-current-pending-arg)))
+      (when (and (listp pending-arg) (eql (car pending-arg) 'value))
+        (tr--process-arg-selection (cdr (tr-current-pending-arg)))))))
 
 (defun tr-!draw-corporations ()
   ""
@@ -1527,7 +1563,8 @@
               (effect-id (car action))
               (effect-params (cdr action))
               (effect-definition (tr-card-effect-by-id effect-id))
-              (param-required-p (terraform-card-extra-action effect-definition))
+              (param-required-p (or (terraform-card-extra-action effect-definition)
+                                    (terraform-card-immediate-action effect-definition)))
               (action-func (terraform-card-effect-action effect-definition)))
          (unless action-func
            (error "no effect defined for %s" action))
@@ -1576,10 +1613,11 @@
     (cl-incf (tr-player-heat player) (+ heat-prod energy))))
 
 (defun tr-!next-generation ()
+  (setq tr-action-no 0)
   (cl-incf (tr-game-state-generation tr-game-state))
   (setf (tr-game-state-passed-players tr-game-state) '())
   (dolist (player (tr-game-state-players tr-game-state))
-    (dolist (card (tr-player-hand player))
+    (dolist (card (tr-player-played player))
       (setf (tr-card-used card) nil))
     (tr-player-generation player))
   ;; TODO: Rotate players
@@ -1602,6 +1640,15 @@
                    #'tr-action-performed)))
   (throw 'ignore-action-step nil))
 
+(defun tr-!player-skip ()
+  (let* ((active-player-id (tr-player-id tr-active-player))
+         (next-player (tr-get-player-after tr-active-player)))
+    (setq tr-active-player next-player)
+    (setq tr-action-no 0)
+    (tr->request next-player (tr-actions-for next-player)
+                 #'tr-action-performed))
+  (throw 'ignore-action-step nil))
+
 (defun tr-?all-players-ready () ;; TODO
   "Return non-nil if all players are ready to start the game."
   t)
@@ -1612,7 +1659,7 @@
 
 ;; Action generation
 
-(defun tr-get-requirement-count (item)
+(defun tr-get-requirement-count (item) ;; TODO: Better name
   (pcase item
     ('money (tr-player-money tr-active-player))
     ('money-production (tr-player-money-production tr-active-player))
@@ -1695,12 +1742,23 @@
            (when (>= money 25) 'city)
            (when (and hand (> (length hand) 0)) 'sell-patents)))))
 
+(defun tr-extra-actions-for (player)
+  (let* ((actions (if (= tr-action-no 0) '(pass) '(skip)))
+         (plant-count (tr-player-plant player))
+         (heat-count (tr-player-heat player)))
+    
+    (when (>= plant-count 8)
+      (push 'plant-to-greenery actions))
+    (when (>= heat-count 8)
+      (push 'heat-to-tempurature actions))
+    actions))
+
 (defun tr-actions-for (player)
   "Return description of all actions the player can take."
   `(action ((projects . ,(tr-playable-projects-for player))
             (project-actions . ,(tr-playable-project-actions-for player))
             (standard-projects . ,(tr-standard-projects-for player))
-            (extra . (pass)))))
+            (extra . ,(tr-extra-actions-for player)))))
 
 (defun tr-get-player-after (player)
   ;; TODO: handle "passed" players
@@ -1755,6 +1813,12 @@
          (tr-!increment-user-resource 'money (length card-ids)))
         (`(extra pass)
          (tr-!player-pass))
+        (`(extra skip)
+         (tr-!player-skip))
+        (`(extra plant-to-greenery)
+         (tr-!run-effect [(dec plant 8) (add-greenery)]))
+        (`(extra heat-to-tempurature)
+         (tr-!run-effect [(dec heat 8) (inc-tempurature)]))
         (_ (error "Invalid action response %s" action)))
       (if tr-interstitial-action
           (tr->request tr-active-player tr-interstitial-action

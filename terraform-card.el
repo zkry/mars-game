@@ -89,9 +89,12 @@
 (defun terraform-card-effect-requirement (effect)
   "Return the requirement of registered EFFECT."
   (nth 5 effect))
+(defun terraform-card-immediate-action (effect)
+  "Return the requirement of registered EFFECT."
+  (nth 6 effect))
 
-(defun terraform-card-register-effect (effect-name param-list extra-action lighter-fn effect-fn requirement)
-  (add-to-list 'terraform-card-effect-registry (list effect-name param-list extra-action lighter-fn effect-fn requirement)
+(defun terraform-card-register-effect (effect-name param-list extra-action lighter-fn effect-fn requirement immediate-action)
+  (add-to-list 'terraform-card-effect-registry (list effect-name param-list extra-action lighter-fn effect-fn requirement immediate-action)
                t #'equal))
 
 (defmacro terraform-card-def-effect (name params &rest body)
@@ -99,12 +102,14 @@
   (let* ((keyw)
          (lighter)
          (extra-action)
+         (immediate-action)
          (requirement))
     (while (keywordp (setq keyw (car body)))
       (setq body (cdr body))
       (pcase keyw
         (:lighter (setq lighter (purecopy (pop body))))
         (:extra-action (setq extra-action (pop body)))
+        (:immediate-action (setq immediate-action (purecopy (pop body))))
         (:requirement (setq requirement (purecopy (pop body))))))
     `(terraform-card-register-effect
       ',name
@@ -116,7 +121,10 @@
       (lambda ,params
         ,@body)
       ,(when requirement
-         `(lambda ,params ,requirement)))))
+         `(lambda ,params ,requirement))
+      ,(when immediate-action
+         `(lambda ,params
+            ,immediate-action)))))
 
 (terraform-card-def-effect inc (resource amt)
   :lighter (format "+%d%s" amt (terraform-resource-type-to-string resource))
@@ -138,13 +146,25 @@
                                      ('titanium terraform--titanium-char)
                                      ('steel terraform--steel-char))))
              (format "-%d%s(%s)" amt terraform--money-char purchase-symbol))
-  :extra-action (list 'buy resource amt)
-  (let ((resource-amt (pop params))
-        (resource-sell-amt
-         (terraform-get-player-resource-sell-amount terraform-active-player resource))
-        (new-price (max (- amount (* resource-amt resource-sell-amt)) 0)))
-    (terraform-!increment-user-resource 'money (- new-price))
-    (terraform-!increment-user-resource resource (- amount))))
+  :immediate-action (let* ((player-resources (terraform-get-requirement-count resource))
+                           (sell-amount (terraform-get-player-resource-sell-amount terraform-active-player resource))
+                           (max-buy-ct (min (ceiling (/ (float amt) sell-amount)) player-resources))
+                           (selected (read-number (format "Amount of %s to sell (0-%d):"
+                                                          (symbol-name resource)
+                                                          max-buy-ct))))
+                      (when (or (not (integerp selected))
+                                (< selected 0)
+                                (< max-buy-ct selected))
+                        (user-error "invalid selection %s %s %s %s" selected (not (integerp selected))
+                                (< amt 0)
+                                (< max-buy-ct amt)))
+                      selected)
+  (lambda (sell-amt)
+    (let* ((sell-total (* (terraform-get-player-resource-sell-amount terraform-active-player resource)
+                          sell-amt))
+           (new-price (- amt sell-total)))
+      (terraform-!increment-user-resource 'money (- new-price))
+      (terraform-!increment-user-resource resource (- sell-amt)))))
 
 (terraform-card-def-effect dec (resource amt)
   :lighter (format "-%d%s" amt (terraform-resource-type-to-string resource))
@@ -242,12 +262,11 @@
   :lighter disp
   (funcall action-lambda terraform-active-card terraform-active-player))
 
-(terraform-card-def-effect -> (cost action)
+(terraform-card-def-effect -> (cost action) ;; TODO not really an effect, document this
   :lighter (format "%s%s%s"
                    (terraform-effect-to-string cost)
                    terraform--action-arrow
-                   (terraform-effect-to-string action))
-  )
+                   (terraform-effect-to-string action)))
 
 (terraform-card-def-effect draw-cards-keep-some (ct buy)
   :lighter (if (= 1 ct)

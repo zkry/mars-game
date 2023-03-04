@@ -132,7 +132,7 @@
 
 (terraform-card-def-effect add (resource amt)
   :lighter (format "+%d%s" amt (terraform-resource-type-to-string resource))
-  (cl-incf (terraform-card-resource-count terraform-active-card)))
+  (cl-incf (terraform-card-resource-count terraform-active-card) amt))
 
 (terraform-card-def-effect inc-per (resource by)
   :lighter (format "+%s/%s"
@@ -220,8 +220,15 @@
 
 (terraform-card-def-effect inc-tempurature ()
   :lighter "+℃"
-  (terraform-!increment-user-resource 'rating 1)
-  (terraform-!increase-tempurature 1))
+  (when (< (terraform-game-state-param-tempurature tr-game-state) 19)
+    (terraform-!increment-user-resource 'rating 1)
+    (terraform-!increase-tempurature 1)))
+
+(terraform-card-def-effect inc-oxygen ()
+  :lighter "+℃"
+  (when (< (terraform-game-state-param-oxygen tr-game-state) 14)
+    (terraform-!increment-user-resource 'rating 1)
+    (terraform-!increase-tempurature 1)))
 
 (terraform-card-def-effect add-ocean ()
   :lighter "+🌊"
@@ -236,7 +243,6 @@
   :extra-action 'standard-greenery-placement
   (lambda (param)
     (let ((location param))
-      (terraform-!increment-user-resource 'rating 1)
       (terraform-!place-greenery location))))
 
 (terraform-card-def-effect add-city ()
@@ -340,7 +346,7 @@
  :number 1
  :tags nil
  :effect [(inc money 57)]
- :continuous-effect '(on (spend 20) (inc money 4)))
+ :continuous-effect '(on (spend 20) [(inc money 4)]))
 (terraform-corporation-def "Ecoline"
  :number 2
  :tags '(plant)
@@ -589,7 +595,7 @@
   :requirements '(<= tempurature -12) ;; TODO : right unit?
   :tags '(plant)
   :effect [(inc plant 1)]
-  :continuous-effect '(on ocean-placed (inc plant 2)))
+  :continuous-effect '(on ocean-placed [(inc plant 2)]))
 
 (terraform-card-def "Predators"
   :number 24
@@ -631,6 +637,143 @@
   :type 'event
   :tags '(earth space)
   :victory-points 4)
+
+(terraform-card-def "Security Fleet"
+  :number 28
+  :cost 12
+  :type 'active
+  :tags '(space)
+  :action [(-> (dec titanium)
+               (add fighter 1))]
+  :victory-points '(per-resource 1 1))
+
+(terraform-card-def "Optimal Aerobraking"
+  :number 31
+  :cost 7
+  :type 'active
+  :tags '(space)
+  :continuous-effect '(on (and space event)
+                          [(inc money 3)
+                           (inc heat 3)]))
+
+(terraform-card-def "Regolith Eaters"
+  :number 33
+  :cost 13
+  :type 'active
+  :tags '(science microbe)
+  :action '[(-> nil (add microbe 1))
+            (-> (dec microbe 2) (inc-oxygen))])
+
+(terraform-card-def "GHG Producing Bacteria"
+  :number 34
+  :cost 8
+  :type 'active
+  :requirements '(>= oxygen 4)
+  :tags '(science microbe)
+  :action '[(-> nil (add microbe 1))
+            (-> (dec microbe 2) (inc-tempurature))])
+
+(terraform-card-def "Ants"
+  :number 35
+  :cost 9
+  :type 'active
+  :requirements '(>= oxygen 4)
+  :tags '(microbe)
+  :action '[(-> (dec-other microbe 1) (add microbe 1))])
+
+(terraform-card-def "Rover Construction"
+  :number 38
+  :cost 8
+  :type 'active
+  :tags '(building)
+  :continuous-effect '(on any-city [(inc money 2)]))
+
+(terraform-card-def "Tardigrades"
+  :number 49
+  :cost 4
+  :type 'active
+  :tags '(microbe)
+  :action '[(-> nil (add microbe 1))]
+  :victory-points '(per-resource 1 4))
+
+(terraform-card-def "Fish"
+  :number 52
+  :cost 9
+  :type 'active
+  :requirements '(>= tempurature 2)
+  :tags '(animal)
+  :action '[(-> nil (add animal 1))]
+  :effect [(dec-other plant-production 1)]
+  :victory-points '(per-resource 1 1))
+
+(terraform-card-def "Small Animals"
+  :number 54
+  :cost 6
+  :type 'active
+  :requirements '(>= oxygen 6)
+  :tags '(animal)
+  :action '[(-> nil (add animal 1))]
+  :effect [(dec-other plant-production 1)]
+  :victory-points '(per-resource 1 2))
+
+(terraform-card-def "Electro Catapult"
+  :number 69
+  :cost 17
+  :type 'active
+  :requirements '(<= oxygen 8)
+  :tags '(building)
+  :action '[(-> (dec plant 1) (inc money 7))
+            (-> (dec steel 1) (inc money 7))]
+  :effect [(dec energy-production 1)]
+  :victory-points 1)
+
+(terraform-card-def "Earth Catapult"
+  :number 70
+  :cost 23
+  :type 'active
+  :tags '(earth)
+  :continuous-effect '(card-discount nil 2)
+  :victory-points 2)
+
+(terraform-card-def "Advanced Alloys"
+  :number 71
+  :cost 9
+  :type 'active
+  :tags '(science)
+  :continuous-effect '(resource-enrich steel+titanium 1))
+
+(terraform-card-def "Earth Office"
+  :number 105
+  :cost 1
+  :type 'active
+  :tags '(earth)
+  :continuous-effect '(card-discount earth 3))
+
+(terraform-card-def "Media Group"
+  :number 109
+  :cost 6
+  :type 'active
+  :tags '(earth)
+  :continuous-effect '(on event [(inc money 3)]))
+
+(terraform-card-def "Ecological Zone"
+  :number 128
+  :cost 12
+  :type 'active
+  :tags '(animal plant)
+  :requirements '(own-forest 1)
+  :effect [(add-special ecological-zone)]
+  :continuous-effect '(on (tags (plant animal)) [(add microbe 1)])
+  :victory-points '(per-resource 1 2))
+
+(terraform-card-def "Decomposers"
+  :number 131
+  :cost 5
+  :type 'active
+  :tags '(microbe)
+  :requirements '(>= oxygen 3)
+  :continuous-effect '(on (tags (plant animal microbe)) [(add microbe 1)]))
+
 
 (defun terraform-card-generate-deck ()
   (let* ((ids (terraform-randomize (hash-table-keys terraform-card-directory))))

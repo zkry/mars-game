@@ -807,7 +807,7 @@
                           (ascraeus . "Ascraus")
                           (tharsis .  "Tharsis")
                           (arsia . "Arsia")
-                          (noctus . "Noctus")))
+                          (noctis . "Noctis")))
          (bonus (plist-get tile :bonus))
          (name (plist-get tile :name))
          (display-name (alist-get name display-names)))
@@ -875,6 +875,8 @@
               (tr--highlight-tile
                (tr--board-line-ocean at-tile line-no))
             (tr--board-line-ocean at-tile line-no)))
+         ((eql name 'noctis) ;; TODO : generalized reserved tiles.
+          line)
          (t ;; EMPTY LAND
           (let* ((line (if name (tr--board-line-name at-tile line-no) content)))
             (if (not (tr--valid-coordinate-p pt))
@@ -1123,8 +1125,7 @@
                               (pcase-lambda (`(,project ,action))
                                 (pcase-let ((`(-> ,cost ,effect) action))
                                   (tr-get-args ;; TODO - bad name: action of card and action of user
-                                   (seq-filter #'identity
-                                               (seq-filter #'identity (seq-map #'tr--extract-action (vector cost effect)))) 
+                                   (seq-filter #'identity (seq-map #'tr--extract-action (vector cost effect))) 
                                    (lambda (args)
                                      (tr-submit-response
                                       (car tr-pending-request)
@@ -1184,8 +1185,11 @@
                                     (button-buttonize
                                      "Convert plant to make greenery" ;; TODO amount
                                      (lambda (_)
-                                       (tr-submit-response (car tr-pending-request)
-                                                           '((extra plant-to-greenery))))
+                                       (tr-get-args (list (tr--extract-action '(add-greenery)))
+                                                    (lambda (args)
+                                                      (tr-submit-response
+                                                       (car tr-pending-request)
+                                                       (list (list 'extra 'plant-to-greenery args))))))
                                      nil)
                                     "\n")))))
 
@@ -1514,8 +1518,9 @@
 
 (defun tr-!place-greenery (coord)
   ;; TODO: validate coord is ok
-  (cl-incf (tr-game-state-param-oxygen tr-game-state))
-  (cl-incf (tr-player-rating tr-active-player))
+  (when (< (tr-game-state-param-oxygen tr-game-state) 14)
+    (cl-incf (tr-game-state-param-oxygen tr-game-state))
+    (cl-incf (tr-player-rating tr-active-player)))
   (let* ((board (tr-gameboard-board (tr-game-state-gameboard tr-game-state)))
          (tile (gethash coord board)))
     (puthash coord (plist-put (plist-put tile :top 'greenery) :player (tr-player-id tr-active-player))
@@ -1581,6 +1586,24 @@
   (pcase-let ((`(-> ,cost ,effect) action))
     (tr-!run-effect (vector cost effect) params card)))
 
+(defun tr--event-applicable-p (event owner handle-sym)
+  (pcase handle-sym
+    ('event
+     (pcase event
+       (`(project-played ,card)
+        (eql (tr-card-type card) event))))))
+
+(defun tr-!trigger-continuous-effects (event owner)
+  "Trigger EVENT, caused by player OWNER."
+  (let* ((players (tr-game-state-players tr-game-state)))
+    (dolist (player players)
+      (let ((played-projects (tr-player-played player)))
+        (dolist (project played-projects)
+          (let* ((continuous-effect (tr-card-continuous-effect project)))
+            (pcase continuous-effect
+              (`(on ,handle-sym ,action)
+               (when (tr--event-applicable-p event owner handle-sym))))))))))
+
 (defun tr-!run-project (project-id params)
   "Run the effects of a given card."
   (let* ((card (tr-card-by-id project-id))
@@ -1588,7 +1611,8 @@
          (effect (tr-card-effect card)))
     (tr-!increment-user-resource 'money (- cost))
     (tr-!run-effect effect params)
-    (tr-!play-in-front project-id)))
+    (tr-!play-in-front project-id)
+    (tr-!trigger-continuous-effects `(project-played ,card) tr-active-player)))
 
 ;; Turn order ---
 
@@ -1749,7 +1773,7 @@
     
     (when (>= plant-count 8)
       (push 'plant-to-greenery actions))
-    (when (>= heat-count 8)
+    (when (and (>= heat-count 8) (< (tr-game-state-param-tempurature tr-game-state) 19))
       (push 'heat-to-tempurature actions))
     actions))
 
@@ -1815,8 +1839,8 @@
          (tr-!player-pass))
         (`(extra skip)
          (tr-!player-skip))
-        (`(extra plant-to-greenery)
-         (tr-!run-effect [(dec plant 8) (add-greenery)]))
+        (`(extra plant-to-greenery ,args)
+         (tr-!run-effect [(dec plant 8) (add-greenery)] args))
         (`(extra heat-to-tempurature)
          (tr-!run-effect [(dec heat 8) (inc-tempurature)]))
         (_ (error "Invalid action response %s" action)))

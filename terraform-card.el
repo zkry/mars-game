@@ -300,6 +300,13 @@
                            terraform-active-player
                            nil))))))
 
+(terraform-card-def-effect add-special (id)
+  :lighter (format "+%s" (symbol-name id))
+  :extra-action 'standard-greenery-placement
+  (lambda (param)
+    (let ((location param))
+      (terraform-!place-special location id))))
+
 (terraform-card-def-effect add-modifier (descr flag)
   :lighter descr)
 
@@ -592,7 +599,7 @@
   :number 23
   :cost 12
   :type 'active
-  :requirements '(<= tempurature -12) ;; TODO : right unit?
+  :requirements '(<= tempurature -12)
   :tags '(plant)
   :effect [(inc plant 1)]
   :continuous-effect '(on ocean-placed [(inc plant 2)]))
@@ -614,9 +621,7 @@
   :requirements nil
   :type 'active
   :tags '(space)
-  :continuous-effect `(add-modifier
-                       ,(format "%s:-2%s" terraform--space-tag terraform--money-char)
-                       (reduce-cost-for-tag space 2))
+  :continuous-effect `(card-discount space 2)
   :victory-points 1)
 
 (terraform-card-def "EOS Chasma National Park"
@@ -652,7 +657,7 @@
   :cost 7
   :type 'active
   :tags '(space)
-  :continuous-effect '(on (and space event)
+  :continuous-effect '(on (and ((tags (space)) event))
                           [(inc money 3)
                            (inc heat 3)]))
 

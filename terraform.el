@@ -332,28 +332,31 @@
 (defun tr-requirements-to-string (requirements)
   (if (not requirements)
       ""
-    (pcase-let*
-        ((`(,cmp ,left ,right) requirements)
-         (left-str
-          (pcase left
-            ('ocean "🌊")
-            ('titanium-production
-             (tr--char->prod tr--titanium-char))
-            ('oxygen "O₂")
-            ('tempurature "°C")
-            ('science-tag tr--science-tag)
-            (_ (error "undefined left %s" left))))
-         (cmp-str
-          (pcase cmp
-            ('>= "≥")
-            ('> ">")
-            ('<= "≤")
-            ('< "<")
-            (_ (error "undefined comparator %s" cmp)))))
-      (format "%s%s%d"
-              left-str
-              cmp-str
-              right))))
+    (pcase requirements
+      (`(own-forest ,amt)
+       (format "🌳>%d" amt))
+      (`(,cmp ,left ,right)
+       (let* ((left-str
+               (pcase left
+                 ('ocean "🌊")
+                 ('titanium-production
+                  (tr--char->prod tr--titanium-char))
+                 ('oxygen "O₂")
+                 ('tempurature "°C")
+                 ('science-tag tr--science-tag)
+                 (_ (error "undefined left %s" left))))
+              (cmp-str
+               (pcase cmp
+                 ('>= "≥")
+                 ('> ">")
+                 ('<= "≤")
+                 ('< "<")
+                 (_ (error "undefined comparator %s" cmp)))))
+         (format "%s%s%d"
+                 left-str
+                 cmp-str
+                 right)))
+      )))
 
 (defun tr-effects-to-string (effect)
   "Convert a card effect data description to a string."
@@ -1516,6 +1519,15 @@
     (tr-!placement-bonus coord)
     (puthash coord (plist-put tile :top 'ocean) board)))
 
+(defun tr-!place-special (coord id)
+  ;; TODO: validate coord is ok
+  (cl-incf (tr-game-state-param-ocean tr-game-state))
+  (cl-incf (tr-player-rating tr-active-player))
+  (let* ((board (tr-gameboard-board (tr-game-state-gameboard tr-game-state)))
+         (tile (gethash coord board)))
+    (tr-!placement-bonus coord)
+    (puthash coord (plist-put (plist-put tile :top 'special) :special-type id) board)))
+
 (defun tr-!place-greenery (coord)
   ;; TODO: validate coord is ok
   (when (< (tr-game-state-param-oxygen tr-game-state) 14)
@@ -1525,6 +1537,8 @@
          (tile (gethash coord board)))
     (puthash coord (plist-put (plist-put tile :top 'greenery) :player (tr-player-id tr-active-player))
              board)))
+
+
 
 (defun tr-!place-city (coord)
   ;; TODO: validate coord is ok
@@ -1588,6 +1602,18 @@
 
 (defun tr--event-applicable-p (event owner handle-sym)
   (pcase handle-sym
+    (`(and ,ands)
+     (seq-every-p
+      (lambda (and-item)
+        (tr--event-applicable-p event owner handle-sym))
+      ands))
+    (`(tags ,tags)
+     (pcase event
+       (`(project-played ,card)
+        (seq-find
+         (lambda (tag)
+           (seq-find (lambda (other-tag) (eql tag other-tag)) (tr-card-tags card)))
+         tags))))
     ('event
      (pcase event
        (`(project-played ,card)
@@ -1602,7 +1628,8 @@
           (let* ((continuous-effect (tr-card-continuous-effect project)))
             (pcase continuous-effect
               (`(on ,handle-sym ,action)
-               (when (tr--event-applicable-p event owner handle-sym))))))))))
+               (when (tr--event-applicable-p event owner handle-sym)
+                 (tr-!run-effect action nil project))))))))))
 
 (defun tr-!run-project (project-id params)
   "Run the effects of a given card."
@@ -1704,6 +1731,18 @@
     ('microbe-tag (tr-count-player-tags tr-active-player 'microbe))
     ('plant-tag (tr-count-player-tags tr-active-player 'plant))))
 
+(defun tr-get-tile-count (top-sym)
+  (let ((ct 0))
+   (dolist (coord (tr--board-coordinates))
+     (let* ((board (tr-gameboard-board (tr-game-state-gameboard tr-game-state)))
+            (tile (gethash coord board))
+            (top (plist-get tile :top))
+            (player (plist-get tile :player)))
+       (when (and (eql player (tr-player-id tr-active-player))
+                  (eql top-sym top))
+         (cl-incf ct))))
+   ct))
+
 (defun tr-requirements-satisfied-p (requirements)
   (pcase requirements
     (`(> ,resource ,amt)  ;; TODO: add pred to check that resource is symbol
@@ -1714,6 +1753,8 @@
      (< (tr-get-requirement-count resource) amt))
     (`(<= ,resource ,amt)
      (<= (tr-get-requirement-count resource) amt))
+    (`(own-forest ,amt)
+     (>= (tr-get-tile-count 'greenery) amt))
     (_ t)))
 
 (defun tr-playable-projects-for (player)

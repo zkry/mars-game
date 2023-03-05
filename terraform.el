@@ -66,10 +66,38 @@
   hand
   played)
 
+(defun tr-player-modifications (player)
+  (seq-map
+   (lambda (effect)
+     (nth 2 effect))
+   (seq-filter
+    (lambda (effect)
+      (and effect (eql (car effect) 'add-modifier)))
+    (seq-map
+     #'tr-card-continuous-effect
+     (tr-player-played player)))))
+
 (defun tr-get-player-resource-sell-amount (player resource)
   (pcase resource
     ('titanium 3)
     ('steel 2)))
+
+(defun tr--player-can-sell-heat-p (&optional player)
+  (seq-find
+   (lambda (mod)
+     (eql mod heat-as-money))
+   (tr-player-modifications (or player tr-active-player))))
+
+(defun tr-get-player-greenery-cost (&optional player)
+  (unless player
+    (setq player tr-active-player))
+  (let* ((default-cost 8)
+         (modifications (tr-player-modifications player)))
+    (dolist (mod modifications)
+      (pcase mod
+        (`(set-greenery-cost ,amt)
+         (setq default-cost amt))))
+    default-cost))
 
 (defun tr-add-projects-to-players-hand (player projects)
   (seq-do
@@ -154,29 +182,29 @@
     (:bonus (card) :name ascraeus) () () () () () (:bonus (steel))
 
     ;; fourth row
-    (:bonus (plant steel) :name pavonis) (:bonus (plant))
+    (:bonus (plant titanium) :name pavonis) (:bonus (plant))
     (:bonus (plant)) (:bonus (plant)) (:bonus (plant plant))
     (:bonus (plant)) (:bonus (plant)) (:bonus (plant plant) :type ocean)
 
     ;; equator
     (:bonus (plant plant) :name arsia) (:bonus (plant plant))
-    (:bonus (plant plant) :name noctus) (:bonus (plant plant) :type ocean)
+    (:bonus (plant plant) :name noctis) (:bonus (plant plant) :type ocean)
     (:bonus (plant plant) :type ocean) (:bonus (plant plant) :type ocean)
     (:bonus (plant plant)) (:bonus (plant plant)) (:bonus (plant plant))
 
     ;; sixth rown
     (:bonus (plant)) (:bonus (plant plant)) (:bonus (plant))
     (:bonus (plant)) (:bonus (plant 1)) (:bonus (plant) :type ocean)
-    (:bonus (plant) :type ocean) (:bonus (plant) :type ocean :top ocean)
+    (:bonus (plant) :type ocean) (:bonus (plant) :type ocean)
 
     ;; seventh row
-    (:top special :special-type lava-flows :player player4) () () () () (:bonus (plant)) ()
+    () () () () () (:bonus (plant)) ()
 
     ;; eighth row
-    (:bonus (steel steel) :top city :player player2) () (:bonus (card)) (:bonus (card)) () (:bonus (titanium))
+    (:bonus (steel steel)) () (:bonus (card)) (:bonus (card)) () (:bonus (titanium))
 
     ;; bottom row
-    (:bonus (steel) :top greenery :player player1) (:bonus (steel steel)) () () (:bonus (steel steel) :type ocean))
+    (:bonus (steel)) (:bonus (steel steel)) () () (:bonus (steel steel) :type ocean))
   "data for the tharsis game board.")
 
 (defun tr--initial-board-tharsis ()
@@ -295,7 +323,7 @@
     (pcase action
       (`(-> nil ,_effect) t)
       (`(-> (dec ,resource ,amt) ,_effect)
-       (>= (tr-get-requirement-count resource) amt))
+       (>= (or (tr-get-requirement-count resource) 0) amt))
       (`(-> (buy ,resource ,amt) ,_effect)
        (>= (+ (tr-get-requirement-count 'money)
               (* (tr-get-player-resource-sell-amount tr-active-player resource)
@@ -358,6 +386,22 @@
                  right)))
       )))
 
+(defun tr-tag-to-string (tag)
+  (pcase tag
+    ('city tr--city-tag)
+    ('microbe tr--microbe-tag)
+    ('building tr--building-tag)
+    ('space tr--space-tag)
+    ('science tr--science-tag)
+    ('power tr--power-tag)
+    ('earth tr--earth-tag)
+    ('jovian tr--jovian-tag)
+    ('venus tr--venus-tag)
+    ('plant tr--plant-tag)
+    ('animal tr--animal-tag)
+    ('wild tr--wild-tag)
+    ('event tr--event-tag)))
+
 (defun tr-effects-to-string (effect)
   "Convert a card effect data description to a string."
   (string-join
@@ -367,13 +411,33 @@
     effect)
    "; "))
 
+(defun tr-continuous-effect-trigger-to-string (trigger-form)
+  (pcase trigger-form
+    ('event
+     tr--event-tag)
+    ('any-ocean
+     (tr--char->decrease-any tr--ocean-indicator))
+    ('ocean
+     tr--ocean-indicator)
+    ('city
+     (tr--char->decrease-any tr--city-tag))
+    ('any-city
+     (tr--char->decrease-any tr--city-tag))
+    (`(tags ,tags-list)
+     (string-join (seq-map #'tr-tag-to-string tags-list) "|"))
+    (`(spend ,amt)
+     (format "%d%s" amt tr--money-char))
+    (`(and ,cases)
+     (string-join (seq-map #'tr-continuous-effect-trigger-to-string cases) "&"))))
+
+
 (defun tr-continuous-effect-to-string (effect)
   "Convert a card's continuous effect to a string."
   (if effect
       (pcase effect
         (`(add-modifier ,label ,_mod) label)
         (`(on ,event ,effect)
-         (format "%s:%s" event (tr-effect-to-string effect))))
+         (format "%s:%s" (tr-continuous-effect-trigger-to-string event) (string-join (seq-map #'tr-effect-to-string effect) "; "))))
     ""))
 
 (cl-defgeneric tr-line-string (item)
@@ -385,14 +449,16 @@
                       ('active 'tr-active-face)
                       ('automated 'tr-automated-face)
                       ('event 'tr-event-face)))
-         (card-name (tr-card-propertized-name item)))
-    (format "$%2d %5s %s %s %s %s"
-            (tr-card-cost item)
-            (tr-requirements-to-string (tr-card-requirements item))
-            card-name
-            (tr-effects-to-string (tr-card-effect item))
-            (tr-effects-to-string (tr-card-action item))
-            (tr-continuous-effect-to-string (tr-card-continuous-effect item)))))
+         (card-name (tr-card-propertized-name item))
+         (base (format "$%2d %5s %s %s %s %s "
+                       (tr-card-cost item)
+                       (tr-requirements-to-string (tr-card-requirements item))
+                       card-name
+                       (tr-effects-to-string (tr-card-effect item))
+                       (tr-effects-to-string (tr-card-action item))
+                       (tr-continuous-effect-to-string (tr-card-continuous-effect item))))
+         (tags (string-join (seq-map #'tr-tag-to-string (tr-card-tags item)))))
+    (format "%-60s %s" base tags)))
 
 (cl-defmethod tr-line-string ((item tr-corporation))
   (format "%s %s %s"
@@ -411,9 +477,12 @@
 (defun tr-card-short-line-string (card)
   "Return shorter string for CARD used for displaying after played."
   (let* ((card-name (tr-card-propertized-name card)))
-    (format "%s %s"
+    (format "%s %s %s %s"
             card-name
-            (tr-effects-to-string (tr-card-action card)))))
+            (or (and (tr-card-resource-count card)
+                     (format "%d" (tr-card-resource-count card))) "")
+            (tr-effects-to-string (tr-card-action card))
+            (tr-continuous-effect-to-string (tr-card-continuous-effect card)))))
 
 (cl-defmethod tr-line-string ((item cons))
   (cdr item))
@@ -643,14 +712,23 @@
 (defconst tr--wild-tag "❓")
 (defconst tr--event-tag "⬇️")
 
+;; indicators
+(defconst tr--ocean-indicator "🌊")
+(defconst tr--greenery-indicator "🌳")
+(defconst tr--city-indicator "🌆")
+
 (defconst tr--action-arrow (propertize "→" 'font-lock-face '(:foreground "red" :weight bold)))
+
+
 
 (defun tr--char->decrease-any (char)
   "Add properties to CHAR to make it indicate production."
-  (propertize char 'font-lock-face
-              (list
-               '(:foreground "red")
-               (get-text-property 0 'font-lock-face char))))
+  (if (emoji-describe char) 
+      (concat (tr--char->decrease-any "[") char (tr--char->decrease-any "]"))
+    (propertize char 'font-lock-face
+                (list
+                 '(:foreground "red")
+                 (get-text-property 0 'font-lock-face char)))))
 
 (defun tr--char->prod (char)
   "Add properties to CHAR to make it indicate production."
@@ -783,8 +861,8 @@
          (special-label (alist-get special-type special-names)))
     (nth line-no
          (list (format "%5s" special-label)
-               (concat "   " (tr--board-player-char player) "   ")
-               (concat "   " (tr--board-player-char player) "   ")
+               (concat "   " (or (tr--board-player-char player) " ") "   ")
+               (concat "   " (or (tr--board-player-char player) " ") "   ")
                " _ _ "))))
 
 (defun tr--board-line-ocean (tile line-no)
@@ -819,7 +897,7 @@
                (concat (propertize " " 'font-lock-face 'tr-ocean-face)
                        (tr--board-format-bonus bonus)
                        (propertize " " 'font-lock-face 'tr-ocean-face))
-               (format "%7s" display-name)
+               (format "%7s" (or display-name ""))
                (concat " _ _ ")))))
 
 (defun tr--highlight-tile (str)
@@ -879,9 +957,9 @@
                (tr--board-line-ocean at-tile line-no))
             (tr--board-line-ocean at-tile line-no)))
          ((eql name 'noctis) ;; TODO : generalized reserved tiles.
-          line)
+          (tr--board-line-name at-tile line-no))
          (t ;; EMPTY LAND
-          (let* ((line (if name (tr--board-line-name at-tile line-no) content)))
+          (let* ((line (tr--board-line-name at-tile line-no)))
             (if (not (tr--valid-coordinate-p pt))
                 line
               (cond
@@ -1096,18 +1174,55 @@
         (insert (funcall line-gen player)))
       (insert "\n"))))
 
+(defun tr--prompt-user-sell (card)
+  "If applicable, prompt user to sell resources for CARD.
+Result is an alist of (resource . amt) with (:total . amt) for the total sell price."
+  ;; HEAT sell
+  (let* ((tags (tr-card-tags card))
+         (cost (tr-card-cost card))
+         (sell-resource (cond
+                         ((memq 'space tags)
+                          'titanium)
+                         ((memq 'building tags)
+                          'steel)))
+         (sell-price (tr-get-player-resource-sell-amount tr-active-player sell-resource))
+         (player-resource (terraform-get-requirement-count sell-resource))
+         (max-sell-amt (min (ceiling (/ (float cost) sell-price)) player-resource))
+         (sell-amt 0)
+         (heat-sell-amt 0))
+    (when (> max-sell-amt 0)
+      (let* ((resp (read-number (format "%s to sell @ %d$ (0-%d):"
+                                        (tr-resource-type-to-string sell-resource)
+                                        sell-price
+                                        max-sell-amt))))
+        (unless (<= 0 resp max-sell-amt)
+          (user-error "Invalid amount %d, should be between 0 and %d" resp max-sell-amt))
+        (setq sell-amt resp)))
+    (when (tr--player-can-sell-heat-p)
+      (let* ((resp (read-number (format "%s to sell @ 1$ (0-%d):"
+                                        tr--heat-char
+                                        max-sell-amt))))
+        (unless (<= 0 resp max-sell-amt)
+          (user-error "Invalid amount %d, should be between 0 and %d" resp max-sell-amt))
+        (setq sell-amt resp)))
+    (let* ((total (+ heat-sell-amt (* sell-amt sell-price))))
+      `((,sell-resource . ,sell-amt)
+        (heat . ,heat-sell-amt)
+        (:total . ,total)))))
+
 (defun tr--display-project-selection (project-ids)
   (insert "Select a Project:\n")
   (dolist (proj-id project-ids)
     (let* ((card (tr-card-by-id proj-id)))
       (insert "   " (button-buttonize "[ ]"
                                       (lambda (card)
-                                        (tr-get-args
-                                         (tr--extract-card-actions card)
-                                         (lambda (args)
-                                           (tr-submit-response (car tr-pending-request)
-                                                               (list (list 'projects
-                                                                           (tr-card-number card) args))))))
+                                        (let* ((sell-alist (tr--prompt-user-sell card)))
+                                          (tr-get-args
+                                           (tr--extract-card-actions card)
+                                           (lambda (args)
+                                             (tr-submit-response (car tr-pending-request)
+                                                                 (list (list 'projects
+                                                                             (tr-card-number card) (cons sell-alist args))))))))
                                       card)
               " "
               (tr-line-string card)
@@ -1298,6 +1413,7 @@
     (let ((in-front-projects (tr-player-played tr-active-player)))
       (insert "\n")
       (insert (format "Played Cards (%d)\n" (length in-front-projects)))
+      ;; TODO: sort so that active are on top
       (dolist (proj in-front-projects)
         (insert "- " (tr-card-short-line-string proj) "\n")))))
 
@@ -1517,7 +1633,8 @@
   (let* ((board (tr-gameboard-board (tr-game-state-gameboard tr-game-state)))
          (tile (gethash coord board)))
     (tr-!placement-bonus coord)
-    (puthash coord (plist-put tile :top 'ocean) board)))
+    (puthash coord (plist-put tile :top 'ocean) board)
+    (tr-!trigger-continuous-effects `(ocean-placed) tr-active-player)))
 
 (defun tr-!place-special (coord id)
   ;; TODO: validate coord is ok
@@ -1526,7 +1643,11 @@
   (let* ((board (tr-gameboard-board (tr-game-state-gameboard tr-game-state)))
          (tile (gethash coord board)))
     (tr-!placement-bonus coord)
-    (puthash coord (plist-put (plist-put tile :top 'special) :special-type id) board)))
+    (puthash coord (plist-put (plist-put (plist-put tile :top 'special)
+                                         :special-type id)
+                              :player (tr-player-id tr-active-player))
+             board)
+    (tr-!trigger-continuous-effects `(special-placed) tr-active-player)))
 
 (defun tr-!place-greenery (coord)
   ;; TODO: validate coord is ok
@@ -1536,16 +1657,16 @@
   (let* ((board (tr-gameboard-board (tr-game-state-gameboard tr-game-state)))
          (tile (gethash coord board)))
     (puthash coord (plist-put (plist-put tile :top 'greenery) :player (tr-player-id tr-active-player))
-             board)))
-
-
+             board)
+    (tr-!trigger-continuous-effects `(greenery-placed) tr-active-player)))
 
 (defun tr-!place-city (coord)
   ;; TODO: validate coord is ok
   (let* ((board (tr-gameboard-board (tr-game-state-gameboard tr-game-state)))
          (tile (gethash coord board)))
     (puthash coord (plist-put (plist-put tile :top 'city) :player (tr-player-id tr-active-player))
-             board)))
+             board)
+    (tr-!trigger-continuous-effects `(city-placed) tr-active-player)))
 
 (defun tr--count-thing (thing)
   (pcase thing
@@ -1600,24 +1721,48 @@
   (pcase-let ((`(-> ,cost ,effect) action))
     (tr-!run-effect (vector cost effect) params card)))
 
-(defun tr--event-applicable-p (event owner handle-sym)
+(defun tr--event-applicable-p (event owner handle-sym handle-player)
+  ;; effect on card
+  ;; -> effect that occurred
   (pcase handle-sym
+    (`(spend ,amt)
+     (when (eql owner handle-player)
+      (pcase event
+        (`(project-played ,card)
+         (>= (tr-card-cost card) amt))
+        (`(standard-project-played ,card)
+         (>= (tr-card-cost card) amt)))))
+    ('any-ocean
+     (pcase event
+       (`(ocean-placed) t)))
+    ('ocean
+     (when (eql owner handle-player)
+      (pcase event
+        (`(ocean-placed) t))))
+    ('city
+     (pcase event
+       (`(city-placed) t)))
+    ('any-city
+     (pcase event
+       (`(city-placed) t)))
     (`(and ,ands)
      (seq-every-p
       (lambda (and-item)
         (tr--event-applicable-p event owner handle-sym))
       ands))
     (`(tags ,tags)
-     (pcase event
-       (`(project-played ,card)
-        (seq-find
-         (lambda (tag)
-           (seq-find (lambda (other-tag) (eql tag other-tag)) (tr-card-tags card)))
-         tags))))
+     (when (eql owner handle-player)
+       (pcase event
+         (`(project-played ,card)
+          (seq-find
+           (lambda (tag)
+             (seq-find (lambda (other-tag) (eql tag other-tag)) (tr-card-tags card)))
+           tags)))))
     ('event
-     (pcase event
-       (`(project-played ,card)
-        (eql (tr-card-type card) event))))))
+     (when (eql owner handle-player)
+       (pcase event
+         (`(project-played ,card)
+          (eql (tr-card-type card) event)))))))
 
 (defun tr-!trigger-continuous-effects (event owner)
   "Trigger EVENT, caused by player OWNER."
@@ -1628,15 +1773,25 @@
           (let* ((continuous-effect (tr-card-continuous-effect project)))
             (pcase continuous-effect
               (`(on ,handle-sym ,action)
-               (when (tr--event-applicable-p event owner handle-sym)
+               (when (tr--event-applicable-p event owner handle-sym player)
                  (tr-!run-effect action nil project))))))))))
 
 (defun tr-!run-project (project-id params)
   "Run the effects of a given card."
-  (let* ((card (tr-card-by-id project-id))
+  ;; Note that the first parameter when running a project is always
+  ;; the cards buy amount (regardless of whether or not it was
+  ;; building or space).
+  (let* ((sell-amounts (pop params))
+         (card (tr-card-by-id project-id))
          (cost (tr-card-cost card))
+         (final-cost (max (- cost (alist-get :total sell-amounts)) 0))
          (effect (tr-card-effect card)))
-    (tr-!increment-user-resource 'money (- cost))
+    (tr-!increment-user-resource 'money (- final-cost))
+    (dolist (item sell-amounts)
+      (pcase item
+        (`(,resource . ,amt)
+         (when (not (eql resource :total))
+           (tr-!increment-user-resource resource (- amt))))))
     (tr-!run-effect effect params)
     (tr-!play-in-front project-id)
     (tr-!trigger-continuous-effects `(project-played ,card) tr-active-player)))
@@ -1810,9 +1965,9 @@
 (defun tr-extra-actions-for (player)
   (let* ((actions (if (= tr-action-no 0) '(pass) '(skip)))
          (plant-count (tr-player-plant player))
-         (heat-count (tr-player-heat player)))
-    
-    (when (>= plant-count 8)
+         (heat-count (tr-player-heat player))
+         (greenery-cost (tr-get-player-greenery-cost)))
+    (when (>= plant-count greenery-cost)
       (push 'plant-to-greenery actions))
     (when (and (>= heat-count 8) (< (tr-game-state-param-tempurature tr-game-state) 19))
       (push 'heat-to-tempurature actions))
@@ -1865,6 +2020,8 @@
          (setf (tr-card-used card) t))
         (`(standard-projects power-plant ,_)
          (tr-!run-effect [(dec money 11) (inc energy-production 1)]))
+        ;; TODO Trigger effect on standard project
+        ;; TODO incorporate with tr--standard-projects
         (`(standard-projects asteroid ,_)
          (tr-!run-effect [(dec money 14) (inc-tempurature)]))
         (`(standard-projects aquifer ,args) ;; TODO change "location" to generic PARAMS
@@ -1881,7 +2038,8 @@
         (`(extra skip)
          (tr-!player-skip))
         (`(extra plant-to-greenery ,args)
-         (tr-!run-effect [(dec plant 8) (add-greenery)] args))
+         (let* ((greenery-cost (tr-get-player-greenery-cost)))
+           (tr-!run-effect `[(dec plant ,greenery-cost) (add-greenery)] args)))
         (`(extra heat-to-tempurature)
          (tr-!run-effect [(dec heat 8) (inc-tempurature)]))
         (_ (error "Invalid action response %s" action)))

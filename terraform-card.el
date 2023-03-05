@@ -126,13 +126,16 @@
          `(lambda ,params
             ,immediate-action)))))
 
+;; TODO Add documentation string for card-def-effect
+
 (terraform-card-def-effect inc (resource amt)
   :lighter (format "+%d%s" amt (terraform-resource-type-to-string resource))
   (terraform-!increment-user-resource resource amt))
 
 (terraform-card-def-effect add (resource amt)
   :lighter (format "+%d%s" amt (terraform-resource-type-to-string resource))
-  (cl-incf (terraform-card-resource-count terraform-active-card) amt))
+  (setf (terraform-card-resource-count terraform-active-card)
+        (+ (or (terraform-card-resource-count terraform-active-card) 0) amt)))
 
 (terraform-card-def-effect inc-per (resource by)
   :lighter (format "+%s/%s"
@@ -210,7 +213,7 @@
                                   (tr--process-arg-selection selection))))
   (lambda (selection)
     (pcase selection
-      ('skip . ,_)
+      (`(skip . ,_))
       (`((,player ,card ,amt) . ,_)
        (cl-decf (terraform-card-resource-count card) amt))
       (`((,player ,amt) . ,_)
@@ -220,13 +223,13 @@
 
 (terraform-card-def-effect inc-tempurature ()
   :lighter "+℃"
-  (when (< (terraform-game-state-param-tempurature tr-game-state) 19)
+  (when (< (terraform-game-state-param-tempurature terraform-game-state) 19)
     (terraform-!increment-user-resource 'rating 1)
     (terraform-!increase-tempurature 1)))
 
 (terraform-card-def-effect inc-oxygen ()
   :lighter "+℃"
-  (when (< (terraform-game-state-param-oxygen tr-game-state) 14)
+  (when (< (terraform-game-state-param-oxygen terraform-game-state) 14)
     (terraform-!increment-user-resource 'rating 1)
     (terraform-!increase-tempurature 1)))
 
@@ -317,8 +320,12 @@
              clauses)
             "|"))
 
+;; TODO: This is handled elsewhere and is not needed...
 (terraform-card-def-effect on (event handler)
-  :lighter (format "%s:%s" event (terraform-effect-to-string handler))
+  :lighter
+  (progn
+    (message ">>> %s" handler)
+    (format "%s:%s" event (string-join (seq-map #'terraform-effect-to-string handler) "; ")))
   nil)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -383,7 +390,7 @@
     (error "Invalid card: cost wrong type integerp: %s" cost))
   (unless (seq-every-p (lambda (tag) (member tag terraform-card-tags)) tags)
     (error "Invalid card: invalid tags: %s" tags))
-  (unless (or (functionp victory-points) (integerp victory-points) (not victory-points))
+  (unless (or (functionp victory-points) (integerp victory-points) (listp victory-points) (not victory-points))
     (error "Invalid card: victory-points not function or integer: %s" victory-points))
   ;; TODO: validate effect, action, and continuous-effect.
   (puthash number
@@ -602,7 +609,7 @@
   :requirements '(<= tempurature -12)
   :tags '(plant)
   :effect [(inc plant 1)]
-  :continuous-effect '(on ocean-placed [(inc plant 2)]))
+  :continuous-effect '(on any-ocean [(inc plant 2)]))
 
 (terraform-card-def "Predators"
   :number 24
@@ -648,7 +655,7 @@
   :cost 12
   :type 'active
   :tags '(space)
-  :action [(-> (dec titanium)
+  :action [(-> (dec titanium 1)
                (add fighter 1))]
   :victory-points '(per-resource 1 1))
 
@@ -686,12 +693,133 @@
   :tags '(microbe)
   :action '[(-> (dec-other microbe 1) (add microbe 1))])
 
+(terraform-card-def "Release of Inert Gasses"
+  :number 36
+  :cost 14
+  :type 'event
+  :effect [(inc rating 2)])
+
+(terraform-card-def "Nitrogen-Rich Asteroid"
+  :number 37
+  :cost 31
+  :type 'event
+  :requirements nil
+  :tags '(space)
+  :effect [(inc plant-production 1)
+           (when (>= (tags plant) 3) ;; TODO: 
+             (inc plant-production 3))
+           (inc rating 2)
+           (inc-tempurature)])
+
 (terraform-card-def "Rover Construction"
   :number 38
   :cost 8
   :type 'active
   :tags '(building)
   :continuous-effect '(on any-city [(inc money 2)]))
+
+(terraform-card-def "Deimos Down"
+  :number 39
+  :cost 31
+  :type 'event
+  :requirements nil
+  :tags '(space)
+  :action nil
+  :effect [(inc-tempurature) (inc-tempurature) (inc-tempurature)
+           (inc steel 4) (dec-other plant 8)]
+  :victory-points nil)
+
+(terraform-card-def "Asteroid Mining"
+  :number 40
+  :cost 30
+  :type 'automated
+  :requirements nil
+  :tags '(jovian space)
+  :action nil
+  :effect [(inc titanium-production 2)]
+  :victory-points 2)
+
+(terraform-card-def "Food Factory"
+  :number 41
+  :cost 12
+  :type 'automated
+  :requirements nil
+  :tags '(building)
+  :action nil
+  :effect [(dec plant-production 1) (inc money-production 4)]
+  :victory-points 1)
+
+(terraform-card-def "Archaebacteria"
+  :number 42
+  :cost 6
+  :type 'automated
+  :requirements '(<= tempurature -18)
+  :tags '(microbe)
+  :action nil
+  :effect [(inc plant-production 1)]
+  :victory-points nil)
+
+(terraform-card-def "Carbonate Processing"
+  :number 43
+  :cost 6
+  :type 'automated
+  :requirements nil
+  :tags '(building)
+  :action nil
+  :effect [(dec energy-production 1) (inc heat-production 3)]
+  :victory-points nil)
+
+(terraform-card-def "Natural Preserve"
+  :number 44
+  :cost 9
+  :type 'automated
+  :requirements '(<= oxygen 4)
+  :tags '(science building)
+  :action nil
+  :effect [(inc money-production 1) (add-special natural-preserve)]
+  :victory-points 1)
+
+(terraform-card-def "Nuclear Power"
+  :number 45
+  :cost 10
+  :type 'automated
+  :requirements nil
+  :tags '(power building)
+  :action nil
+  :effect [(dec money-production 2) (inc energy-production 3)]
+  :victory-points nil)
+
+(terraform-card-def "Lightning Harvest"
+  :number 46
+  :cost 8
+  :type 'automated
+  :requirements '(>= (tags science) 3) ;; TODO: implement tags requirements
+  :tags '(power)
+  :action nil
+  :effect [(inc energy-production 1) (inc money-production 1)]
+  :victory-points 1)
+
+(terraform-card-def "Algae"
+  :number 47
+  :cost 10
+  :type 'automated
+  :requirements '(>= ocean 5)
+  :tags '(plant)
+  :action nil
+  :effect [(inc plant 1) (inc plant-production 2)]
+  :continuous-effect nil
+  :victory-points nil)
+
+(terraform-card-def "Adapted Lichen"
+  :number 48
+  :cost 9
+  :type 'automated
+  :requirements nil
+  :tags '(plant)
+  :action nil
+  :effect [(inc plant-production 1)]
+  :continuous-effect nil
+  :victory-points 9)
 
 (terraform-card-def "Tardigrades"
   :number 49
@@ -700,6 +828,15 @@
   :tags '(microbe)
   :action '[(-> nil (add microbe 1))]
   :victory-points '(per-resource 1 4))
+
+(terraform-card-def "Virus"
+  :number 50
+  :cost 1
+  :type 'event
+  :requirements nil
+  :tags '(microbe)
+  :action nil
+  :effect [(or (dec-other animal 2) (dec-other plant 5))]) ;; TODO implement or
 
 (terraform-card-def "Fish"
   :number 52
@@ -752,7 +889,7 @@
   :cost 1
   :type 'active
   :tags '(earth)
-  :continuous-effect '(card-discount earth 3))
+  :continuous-effect '(add-modifier "🌎:-3$" (card-discount earth 3)))
 
 (terraform-card-def "Media Group"
   :number 109

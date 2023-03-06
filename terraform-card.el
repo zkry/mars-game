@@ -572,7 +572,7 @@
   :requirements nil
   :type 'event
   :tags '(earth space)
-  :effect [(or (inc plant 3) (add microbe 3) (add animal 2))
+  :effect [(or ((inc plant 3) (add microbe 3) (add animal 2)))
            (add-ocean)])
 
 (terraform-card-def "Research Outpost"
@@ -793,7 +793,7 @@
   :number 46
   :cost 8
   :type 'automated
-  :requirements '(>= (tags science) 3) ;; TODO: implement tags requirements
+  :requirements '(>= (tags (science)) 3) ;; TODO: implement tags requirements
   :tags '(power)
   :action nil
   :effect [(inc energy-production 1) (inc money-production 1)]
@@ -836,7 +836,18 @@
   :requirements nil
   :tags '(microbe)
   :action nil
-  :effect [(or (dec-other animal 2) (dec-other plant 5))]) ;; TODO implement or
+  :effect [(or ((dec-other animal 2) (dec-other plant 5)))]) ;; TODO implement or
+
+(terraform-card-def "Miranda Resort"
+  :number 51
+  :cost 12
+  :type 'automated
+  :requirements nil
+  :tags '(jovian space)
+  :action nil
+  :effect [(inc-per money-production (tags earth))] ;; TODO implement inc-per with tags
+  :continuous-effect nil
+  :victory-points 1)
 
 (terraform-card-def "Fish"
   :number 52
@@ -848,6 +859,17 @@
   :effect [(dec-other plant-production 1)]
   :victory-points '(per-resource 1 1))
 
+(terraform-card-def "Lake Marineris"
+  :number 53
+  :cost 18
+  :type 'automated
+  :requirements '(>= tempurature 0)
+  :tags '()
+  :action nil
+  :effect [(add-ocean) (add-ocean)]
+  :continuous-effect nil
+  :victory-points 2)
+
 (terraform-card-def "Small Animals"
   :number 54
   :cost 6
@@ -857,6 +879,127 @@
   :action '[(-> nil (add animal 1))]
   :effect [(dec-other plant-production 1)]
   :victory-points '(per-resource 1 2))
+
+(terraform-card-def "Kelp Farming"
+  :number 55
+  :cost 17
+  :type 'automated
+  :requirements '(>= ocean 6)
+  :tags '(plant)
+  :action nil
+  :effect [(inc money-production 2) (inc plant-production 3) (inc plant 2)]
+  :victory-points 1)
+
+(terraform-card-def "Mine"
+  :number 56
+  :cost 4
+  :type 'automated
+  :requirements 
+  :tags '(building)
+  :effect [(inc steel-production 1)])
+
+(terraform-card-def "Vesta Shipyard"
+  :number 57
+  :cost 15
+  :type 'automated
+  :requirements nil
+  :tags '(jovian space)
+  :action nil
+  :effect [(inc titanium-production 1)]
+  :continuous-effect nil
+  :victory-points 1)
+
+(terraform-card-def "Beam From a Thorium Asteroid"
+  :number 58
+  :cost 32
+  :type 'automated
+  :requirements '(>= (tags (jovian)) 1)
+  :tags '(jovian space power)
+  :effect [(inc heat-production 3) (inc energy-production 3)]
+  :victory-points 1)
+
+(terraform-card-def "Mangrove"
+  :number 59
+  :cost 12
+  :type 'automated
+  :requirements '(>= tempurature 4)
+  :tags '(plant)
+  :effect [(add-greenery)]
+  :victory-points 1)
+
+(terraform-card-def "Trees"
+  :number 60
+  :cost 13
+  :type 'automated
+  :requirements '(>= tempurature -4)
+  :tags '(plant)
+  :action nil
+  :effect [(inc plant-production 3) (inc plant 1)]
+  :continuous-effect nil
+  :victory-points 1)
+
+(terraform-card-def "Great Escarpment Consortium"
+  :number 61
+  :cost 6
+  :type 'automated
+  :requirements '(>= steel-production 1)
+  :tags '()
+  :effect [(dec-other steel-production 1) (inc steel-production 1)])
+
+(terraform-card-def "Mineral Deposit"
+  :number 62
+  :cost 5
+  :type 'event
+  :tags '()
+  :effect [(inc steel 5)])
+
+(terraform-card-def "Mining Expedition"
+  :number 63
+  :cost 12
+  :type 'automated
+  :requirements nil
+  :tags '()
+  :action nil
+  :effect [(inc-oxygen) (inc steel 2) (dec-other plant 2)])
+
+(terraform-card-def "Mining Area"
+  :number 64
+  :cost 4
+  :type 'automated
+  :requirements nil
+  :tags '(building)
+  :action nil
+  :effect [(add-mining mining-area)] ;; TODO needs special logic
+  )
+
+(terraform-card-def "Building Industries"
+  :number 65
+  :cost 6
+  :type 'automated
+  :tags '(building)
+  :effect [(dec energy-production 1) (inc steel-production 2)])
+
+(terraform-card-def "Land Claim"
+  :number 66
+  :cost 1
+  :type 'event
+  :tags '()
+  :effect [(add-land-claim)] ;; TODO needs special logic
+  )
+
+(terraform-card-def "Mining Rights"
+  :number 67
+  :cost 9
+  :type 'automated
+  :tags '(building)
+  :effect [(add-mining mining-rights)])
+
+(terraform-card-def "Sponsors"
+  :number 68
+  :cost 6
+  :type 'automated
+  :tags '(earth)
+  :effect [(inc money-production 2)])
 
 (terraform-card-def "Electro Catapult"
   :number 69
@@ -884,12 +1027,358 @@
   :tags '(science)
   :continuous-effect '(resource-enrich steel+titanium 1))
 
+(terraform-card-def "Birds"
+  :number 72
+  :cost 10
+  :type 'active
+  :requirements '(>= oxygen 13)
+  :tags '(animal)
+  :action [(-> nil (add animal 1))]
+  :effect [(dec-other plant-production 2)]
+  :victory-points '(per-resource 1 1))
+
+(terraform-card-def "Mars University"
+  :number 73
+  :cost 8
+  :type 'active
+  :requirements nil
+  :tags '(science building)
+  :action nil
+  :effect nil
+  :continuous-effect '(on (tags (science)) [(swap-card)])
+  :victory-points 1)
+
+(terraform-card-def "Viral Enhancers"
+  :number 74
+  :cost 9
+  :type 'active
+  :tags '(science microbe)
+  :continuous-effect '(on (tags (plant microbe animal)) [(or ((inc plant 1) (add _ 1)))]) ;; TODO requires tricky logic...
+  )
+
+(terraform-card-def "Towing a Comet"
+  :number 75
+  :cost 23
+  :type 'event
+  :requirements nil
+  :tags '(space)
+  :action nil
+  :effect [(inc-oxygen) (add-ocean) (inc plant 2)])
+
+(terraform-card-def "Space Mirrors"
+  :number 76
+  :cost 3
+  :type 'active
+  :requirements nil
+  :tags '(power space)
+  :action [(-> (dec money 7) (inc power 1))])
+
+(terraform-card-def "Solar Wind Power"
+  :number 77
+  :cost 11
+  :type 'automated
+  :tags '(science space power)
+  :effect [(inc energy-production 1) (inc titanium 2)])
+
+(terraform-card-def "Ice Asteroid"
+  :number 78
+  :cost 23
+  :type 'event
+  :requirements nil
+  :tags '(space)
+  :action nil
+  :effect [(add-ocean) (add-ocean)]
+  :continuous-effect nil
+  :victory-points nil)
+
+(terraform-card-def "Quantum Extractor"
+  :number 79
+  :cost 13
+  :type 'active
+  :requirements '(>= (tags (science)) 4)
+  :tags '()
+  :action 
+  :effect 
+  :continuous-effect 
+  :victory-points )
+
+(terraform-card-def "Giant Ice Asteroid"
+  :number 80
+  :cost 36
+  :type 'event
+  :requirements nil
+  :tags '(space)
+  :action nil
+  :effect [(inc-tempurature) (inc-tempurature) (add-ocean) (add-ocean) (dec-other plant 6)] ;; TODO unable to select same ocean twice
+  )
+
+(terraform-card-def "Ganymede Colony"
+  :number 81
+  :cost 20
+  :type 'automated
+  :requirements nil
+  :tags '(jovian)
+  :action nil
+  :effect [(add-city-noplace)] ;; TODO add this effect
+  :victory-points '(per-tag jovian 1 1)) ;; TODO implement this
+
+(terraform-card-def "Callisto Penal Mines"
+  :number 82
+  :cost 24
+  :type 'automated
+  :tags '(jovian space)
+  :effect [(inc money-production 3)]
+  :victory-points 2)
+
+(terraform-card-def "Giant Space Mirror"
+  :number 83
+  :cost 17
+  :type 'automated
+  :requirements nil
+  :tags '(power space)
+  :action nil
+  :effect [(inc energy-production 3)]
+  :continuous-effect nil
+  :victory-points nil)
+
+(terraform-card-def "Trans-Neptune Probe"
+  :number 84
+  :cost 6
+  :type 'automated
+  :requirements nil
+  :tags '(science space)
+  :action nil
+  :victory-points 1)
+
+(terraform-card-def "Commercial District"
+  :number 85
+  :cost 16
+  :type 'automated
+  :requirements nil
+  :tags '(building)
+  :action nil
+  :effect [(add-special commercial-district)]
+  :continuous-effect nil
+  :victory-points '(per-city 1 1))
+
+((terraform-card-def "Robotic Workforce"
+   :number 86
+   :cost 9
+   :type 'automated
+   :requirements nil
+   :tags '(science)
+   :action nil
+   :effect [(duplicate-automated (tags building))])) ;; TODO Implement this
+
+(terraform-card-def "Grass"
+  :number 87
+  :cost 11
+  :type 'automated
+  :requirements '(>= tempurature 16)
+  :tags '(plant)
+  :effect [(inc plant-production 1) (inc plant 3)])
+
+(terraform-card-def "Heather"
+  :number 88
+  :cost 6
+  :type 'automated
+  :requirements '(>= tempurature -14)
+  :tags '()
+  :action nil
+  :effect [(inc plant-production 1) (inc plant 1)]
+  :continuous-effect nil
+  :victory-points nil)
+
+(terraform-card-def "Peroxide Power"
+  :number 89
+  :cost 7
+  :type 'automated
+  :requirements nil
+  :tags '(power building)
+  :action nil
+  :effect [(dec money-production 1) (inc energy-production 2)])
+
+(terraform-card-def "Research"
+  :number 90
+  :cost 11
+  :type 'automated
+  :requirements nil
+  :tags '(science science) ;; TODO Does this work for other counts?
+  :action nil
+  :effect [(inc card 2)]
+  :victory-points 1)
+
+(terraform-card-def "Gene Repair"
+  :number 91
+  :cost 12
+  :type 'automated
+  :requirements '(>= (tags (science)) 3)
+  :tags '(science)
+  :action nil
+  :effect (inc money-production 2)
+  :continuous-effect nil
+  :victory-points 2)
+
+(terraform-card-def "IO Mining Industries"
+  :number 92
+  :cost 41
+  :type 'automated
+  :requirements nil
+  :tags '(jovian space)
+  :action nil
+  :effect [(inc titanium-production 2) (inc money-production 2)]
+  :continuous-effect nil
+  :victory-points '(per-tag jovian 1 1))
+
+(terraform-card-def "Bushes"
+  :number 93
+  :cost 10
+  :type 'automated
+  :requirements '(>= tempurature -10)
+  :tags '(plant)
+  :action nil
+  :effect [(inc plant-production 2) (inc plant 2)]
+  :continuous-effect nil
+  :victory-points nil)
+
+(terraform-card-def "Mass Converter"
+  :number 94
+  :cost 8
+  :type 'automated
+  :requirements '(>= (tags (science)) 5)
+  :tags '(science power)
+  :action nil
+  :effect [(inc energy-production 6)]
+  :continuous-effect '(card-discount space 2))
+
+(terraform-card-def "Physics Complex"
+  :number 95
+  :cost 12
+  :type 'automated
+  :requirements nil
+  :tags '(science power)
+  :action [(-> (dec energy 6) (add science 1))]
+  :effect nil
+  :continuous-effect nil
+  :victory-points '(per-resource 2 1))
+
+(terraform-card-def "Greenhouse"
+  :number 96
+  :cost 6
+  :type 'automated
+  :requirements nil
+  :tags '(plant building)
+  :action nil
+  :effect [(inc-per plant every-city)])
+
+(terraform-card-def "Nuclear Zone"
+  :number 97
+  :cost 10
+  :type 'automated
+  :tags '(earth)
+  :effect [(add-special nuclear-zone) (inc-tempurature) (inc-tempurature)]
+  :victory-points -2)
+
+(terraform-card-def "Tropical Resort"
+  :number 98
+  :cost 13
+  :type 'automated
+  :requirements nil
+  :tags '(building)
+  :action nil
+  :effect [(dec heat-production 2) (inc money-production 3)]
+  :continuous-effect nil
+  :victory-points 2)
+
+(terraform-card-def "Toll Station"
+  :number 99
+  :cost 12
+  :type 'automated
+  :requirements nil
+  :tags '(space)
+  :action nil
+  :effect [(inc-per money (opponents-tag space))] ;; TODO Implement this
+  )
+
+(terraform-card-def "Fueled Generators"
+  :number 100
+  :cost 1
+  :type 'automated
+  :requirements nil
+  :tags '(power building)
+  :action nil
+  :effect [(dec money-production 1) (inc energy-production 1)]
+  :continuous-effect nil
+  :victory-points nil)
+
+(terraform-card-def "Ironworks"
+  :number 101
+  :cost 11
+  :type 'automated
+  :requirements nil
+  :tags '()
+  :action [(-> (dec energy 4) [(inc steel 1) (inc-oxygen)])] ;; TODO do vectors work here?
+  :effect nil
+  :continuous-effect nil
+  :victory-points nil)
+
+(terraform-card-def "Power Grid"
+  :number 102
+  :cost 18
+  :type 'automated
+  :tags '(power)
+  :effect [(inc-per energy-production (tags power))] ;; TODO make sure that this works
+  )
+
+(terraform-card-def "Steelworks"
+  :number 103
+  :cost 15
+  :type 'automated
+  :tags '(building)
+  :action [(-> (dec energy 4) [(inc steel 2) (inc-oxygen)])])
+
+(terraform-card-def "Ore Processor"
+  :number 104
+  :cost 13
+  :type 'automated
+  :requirements nil
+  :tags '(building)
+  :action [(-> (dec energy 4) [(inc titanium 1) (inc-oxygen)])])
+
 (terraform-card-def "Earth Office"
   :number 105
   :cost 1
   :type 'active
   :tags '(earth)
   :continuous-effect '(add-modifier "🌎:-3$" (card-discount earth 3)))
+
+(terraform-card-def "Acquired Company"
+  :number 106
+  :cost 10
+  :type 'automated
+  :requirements nil
+  :tags '(earth)
+  :action nil
+  :effect [(inc money-production 3)])
+
+(terraform-card-def "Media Archives"
+  :number 107
+  :cost 8
+  :type 'automated
+  :requirements nil
+  :tags '(earth)
+  :action nil
+  :effect [(inc-per money every-event)])
+
+(terraform-card-def "Open City"
+  :number 108
+  :cost 23
+  :type 'automated
+  :requirements '(>= oxygen 12)
+  :tags '(city building)
+  :action nil
+  :effect [(dec energy-production 1) (inc money-production 4) (inc plant 2) (add-city)]
+  :victory-points 1)
 
 (terraform-card-def "Media Group"
   :number 109
@@ -898,15 +1387,218 @@
   :tags '(earth)
   :continuous-effect '(on event [(inc money 3)]))
 
+(terraform-card-def "Business Network"
+  :number 110
+  :cost 4
+  :type 'automated
+  :requirements nil
+  :tags '(earth)
+  :action [(-> nil (draw-cards-keep-some 1 t))]
+  :effect [(dec money-production 1)]
+  :continuous-effect nil
+  :victory-points nil)
+
+(terraform-card-def "Business Contacts"
+  :number 111
+  :cost 7
+  :type 'event
+  :tags '(earth)
+  :effect [(draw-cards-keep-some 4 2)])
+
+(terraform-card-def "Bribed Committee"
+  :number 112
+  :cost 7
+  :type 'event
+  :requirements nil
+  :tags '(earth)
+  :action nil
+  :effect [(inc rating 2)]
+  :victory-points -2)
+
+(terraform-card-def "Solar Power"
+  :number 113
+  :cost 11
+  :type 'automated
+  :requirements nil
+  :tags '(power building)
+  :action nil
+  :effect [(inc energy-production 1)]
+  :continuous-effect nil
+  :victory-points 1)
+
+(terraform-card-def "Breathing Filters"
+  :number 114
+  :cost 11
+  :type 'automated
+  :requirements '(>= oxygen 7)
+  :tags '(science)
+  :action nil
+  :effect nil
+  :continuous-effect nil
+  :victory-points 2)
+
+(terraform-card-def "Artificial Photosynthesis"
+  :number 115
+  :cost 12
+  :type 'automated
+  :requirements nil
+  :tags '(science)
+  :action nil
+  :effect [(or ((inc plant 1) (inc energy-production 2)))]
+  :continuous-effect nil
+  :victory-points nil)
+
+(terraform-card-def "Artificial Lake"
+  :number 116
+  :cost 15
+  :type 'automated
+  :requirements '(>= tempurature -6)
+  :tags '(building)
+  :effect [(add-ocean-on-land)] ;; TODO add this effect
+  :victory-points 1)
+
+(terraform-card-def "Geothermal Power"
+  :number 117
+  :cost 11
+  :type 'automated
+  :requirements nil
+  :tags '(power building)
+  :action nil
+  :effect [(inc energy-production 2)]
+  :continuous-effect nil
+  :victory-points nil)
+
+(terraform-card-def "Farming"
+  :number 118
+  :cost 16
+  :type 'automated
+  :requirements '(>= tempurature 4)
+  :tags '(plant)
+  :action nil
+  :effect [(inc :money-production 2) (inc plant-production 2) (inc plant 2)]
+  :continuous-effect nil
+  :victory-points 2)
+
+(terraform-card-def "Dust Seals"
+  :number 119
+  :cost 16
+  :type 'automated
+  :requirements '(<= ocean 3)
+  :tags '()
+  :action nil
+  :effect nil
+  :continuous-effect nil
+  :victory-points 1)
+
+(terraform-card-def "Urbanized Area"
+  :number 120
+  :cost 10
+  :type 'automated
+  :requirements nil
+  :tags '(city building)
+  :action nil
+  :effect [(dec energy-production 1) (inc money-production 2) (add-city-urbanized-area)] ;; TODO add this effect
+  )
+
+(terraform-card-def "Sabotage"
+  :number 121
+  :cost 1
+  :type 'event
+  :requirements nil
+  :tags '()
+  :action nil
+  :effect [(or ((dec-other titanium 3)
+                (dec-other steel 4)
+                (dec-other money 7)))])
+
+(terraform-card-def "Moss"
+  :number 122
+  :cost 4
+  :type 'automated
+  :requirements '(>= ocean 3)
+  :tags '(plant)
+  :action nil
+  :effect [(dec plant 1) (inc plant-production 1)]
+  :continuous-effect nil
+  :victory-points nil)
+
+(terraform-card-def "Industrial Center"
+  :number 123
+  :cost 4
+  :type 'automated
+  :requirements nil
+  :tags '(building)
+  :action [(-> (dec money 7) (inc steel-production 1))]
+  :effect [(add-special industrial-center)])
+
+(terraform-card-def "Hired Raiders"
+  :number 124
+  :cost 1
+  :type 'event
+  :tags '()
+  :effect [(or ((steal steel 2) ;; TODO add this effect
+                (steal money 3)))])
+
+(terraform-card-def "Hackers"
+  :number 125
+  :cost 3
+  :type 'automated
+  :tags '()
+  :effect [(dec energy-production 1) (dec-other money-production 2) (inc money-production 2)]
+  :victory-points -1)
+
+(terraform-card-def "GHG Factories"
+  :number 126
+  :cost 11
+  :type 'automated
+  :requirements nil
+  :tags '(building)
+  :action nil
+  :effect [(dec energy-production 1) (inc heat-production 4)])
+
+(terraform-card-def "Subterranean Reservoir"
+  :number 127
+  :cost 11
+  :type 'event
+  :requirements nil
+  :tags '()
+  :action nil
+  :effect [(add-ocean)])
+
 (terraform-card-def "Ecological Zone"
   :number 128
   :cost 12
   :type 'active
+  :requirements '(>= own-forest 1)
   :tags '(animal plant)
-  :requirements '(own-forest 1)
+  :action nil
   :effect [(add-special ecological-zone)]
-  :continuous-effect '(on (tags (plant animal)) [(add microbe 1)])
+  :continuous-effect '(on (tags (plant animal)) [(add animal 1)])
   :victory-points '(per-resource 1 2))
+
+(terraform-card-def "Zeppelins"
+  :number 129
+  :cost 13
+  :type 'automated
+  :requirements '(>= oxygen 5)
+  :tags '()
+  :action nil
+  :effect [(inc-per money every-city)]
+  :victory-points 1)
+
+;; here
+
+(terraform-card-def "Worms"
+  :number 130
+  :cost 8
+  :type 'automated
+  :requirements '(>= oxygen 4)
+  :tags '(microbe)
+  :action nil
+  :effect [(inc-per plant (tags microbe))]
+  :continuous-effect nil
+  :victory-points nil)
+
 
 (terraform-card-def "Decomposers"
   :number 131
@@ -916,6 +1608,792 @@
   :requirements '(>= oxygen 3)
   :continuous-effect '(on (tags (plant animal microbe)) [(add microbe 1)]))
 
+(terraform-card-def "Fusion Power"
+  :number 132
+  :cost 14
+  :type 'automated
+  :requirements '(>= (tags power) 2)
+  :tags '(science building power)
+  :action nil
+  :effect [(inc energy-production 3)]
+  :continuous-effect nil
+  :victory-points nil)
+
+(terraform-card-def "Symbiotic Fungus"
+  :number 133
+  :cost 4
+  :type 'active
+  :requirements '(>= tempurature -14)
+  :tags '(microbe)
+  :action [(-> nil (add-other microbe 1))] ;; TODO add this effect
+  )
+
+(terraform-card-def "Extreme-Cold Fungus"
+  :number 134
+  :cost 13
+  :type 'active
+  :requirements '(<= tempurature -10)
+  :tags '(microbe)
+  :action [(-> nil (inc plant 1))
+           (-> nil (add-other microbe 2))])
+
+(terraform-card-def "Advanced Ecosystems"
+  :number 135
+  :cost 11
+  :type 'automated
+  :requirements '(and (>= (tags (plant)) 1)
+                      (>= (tags (microbe)) 1)
+                      (>= (tags (animal)) 1))
+  :tags '(plant microbe animal)
+  :victory-points 3)
+
+(terraform-card-def "Great Dam"
+  :number 136
+  :cost 12
+  :type 'automated
+  :requirements 
+  :tags '(power building)
+  :action nil
+  :effect [(inc energy-production 2)]
+  :victory-points 1)
+
+(terraform-card-def "Cartel"
+  :number 137
+  :cost 8
+  :type 'automated
+  :requirements nil
+  :tags '(earth)
+  :action nil
+  :effect [(inc-per money (tags earth))]
+  :victory-points 1)
+
+(terraform-card-def "Strip Mine"
+  :number 138
+  :cost 25
+  :type 'automated
+  :requirements nil
+  :tags '(building)
+  :action nil
+  :effect [(dec energy-production 2) (inc steel-production 2) (inc titanium-production 1)
+           (inc-oxygen) (inc-oxygen)])
+
+(terraform-card-def "Wave Power"
+  :number 139
+  :cost 8
+  :type 'automated
+  :requirements '(>= ocean 8)
+  :tags '(power)
+  :action nil
+  :effect [(inc energy-production 1)]
+  :continuous-effect nil
+  :victory-points 1)
+
+(terraform-card-def "Lava Flows"
+  :number 140
+  :cost 18
+  :type 'event
+  :requirements nil
+  :tags '()
+  :action nil
+  :effect [(inc-tempurature) (inc-tempurature) (add-special lava-flows)])
+
+(terraform-card-def "Power Plant"
+  :number 141
+  :cost 4
+  :type 'automated
+  :requirements nil
+  :tags '(power building)
+  :action nil
+  :effect [(inc energy-production 1)]
+  :continuous-effect nil
+  :victory-points nil)
+
+(terraform-card-def "Mohole Area"
+  :number 142
+  :cost 20
+  :type 'automated
+  :requirements nil
+  :tags '(building)
+  :action nil
+  :effect [(inc heat-production 4) (add-special mohole-area)]
+  :continuous-effect nil
+  :victory-points nil)
+
+(terraform-card-def "Large Convoy"
+  :number 143
+  :cost 36
+  :type 'event
+  :requirements nil
+  :tags '(space earth)
+  :action nil
+  :effect [(add-ocean) (inc card 2) (or ((inc plant 5) (add-other animal 4)))]
+  :continuous-effect nil
+  :victory-points 2)
+
+(terraform-card-def "Titanium Mine"
+  :number 144
+  :cost 7
+  :type 'automated
+  :requirements nil
+  :tags '(building)
+  :action nil
+  :effect [(inc titanium-production 1)]
+  :continuous-effect nil
+  :victory-points nil)
+
+(terraform-card-def "Tectonic Stress Power"
+  :number 145
+  :cost 18
+  :type 'automated
+  :requirements '(>= (tags science) 2)
+  :tags '(power building)
+  :action nil
+  :effect [(inc energy-production 3)]
+  :continuous-effect nil
+  :victory-points 1)
+
+(terraform-card-def "Nitrophilic Moss"
+  :number 146
+  :cost 8
+  :type 'automated
+  :requirements '(>= ocean 3)
+  :tags '(plant)
+  :action nil
+  :effect [(inc plant-production 2) (dec plant 2)]
+  :continuous-effect nil
+  :victory-points nil)
+
+(terraform-card-def "Herbivores"
+  :number 147
+  :cost 12
+  :type 'automated
+  :requirements '(>= oxygen 8)
+  :tags '(animal)
+  :action nil
+  :effect [(add animal 1) (dec plant-production 1)]
+  :continuous-effect '(on greenery [(add animal 1)])
+  :victory-points '(per-resource 1 2))
+
+(terraform-card-def "Insects"
+  :number 148
+  :cost 9
+  :type 'automated
+  :requirements '(>= oxygen 6)
+  :tags '(microbe)
+  :action nil
+  :effect [(inc-per plant (tags plant))]
+  :continuous-effect nil
+  :victory-points nil)
+
+(terraform-card-def "CEO's Favorite Project"
+  :number 149
+  :cost 1
+  :type 'event
+  :requirements nil
+  :tags '()
+  :action nil
+  :effect [(add-other-with-resource _ 1)]
+  :continuous-effect nil
+  :victory-points nil)
+
+(terraform-card-def "Anti-Gravity Technology"
+  :number 150
+  :cost 14
+  :type 'active
+  :requirements '(>= (tags science) 7)
+  :tags '(science)
+  :continuous-effect '(card-discount nil 2)
+  :victory-points 3)
+
+(terraform-card-def "Investment Loan"
+  :number 151
+  :cost 3
+  :type 'event
+  :requirements nil
+  :tags '(earth)
+  :action nil
+  :effect [(dec money-production 1) (inc money 10)]
+  :continuous-effect nil
+  :victory-points nil)
+
+(terraform-card-def "Insulation"
+  :number 152
+  :cost 2
+  :type 'automated
+  :requirements nil
+  :tags '()
+  :action nil
+  :effect [(convert-resource heat money)] ;; TODO Implement this
+  :continuous-effect nil
+  :victory-points nil)
+
+(terraform-card-def "Adaptation Technology"
+  :number 153
+  :cost 12
+  :type 'active
+  :requirements nil
+  :tags '(science)
+  :action nil
+  :effect nil
+  :continuous-effect '(global-requirement-discount 2)
+  :victory-points 1)
+
+(terraform-card-def "Caretaker Contract"
+  :number 154
+  :cost 3
+  :type 'active
+  :requirements '(>= tempurature 0) 
+  :tags '()
+  :action [(-> (dec heat 8) (inc rating 1))])
+
+(terraform-card-def "Designed Microorganisms"
+  :number 155
+  :cost 16
+  :type 'automated
+  :requirements '(<= tempurature 14)
+  :tags '(science microbe)
+  :action nil
+  :effect [(inc plant-production 2)]
+  :continuous-effect nil
+  :victory-points nil)
+
+(terraform-card-def "Standard Technology"
+  :number 156
+  :cost 6
+  :type 'active
+  :requirements nil
+  :tags '(science)
+  :action nil
+  :effect nil
+  :continuous-effect '(standard-project-discount 3)
+  :victory-points nil)
+
+(terraform-card-def "Nitrite Reducing Bacteria"
+  :number 157
+  :cost 11
+  :type 'active
+  :requirements nil
+  :tags '(microbe)
+  :action [(-> nil (add microbe))
+           (-> (dec microbe 3) (inc rating 1))]
+  :effect [(inc microbe 3)])
+
+(terraform-card-def "Industrial Microbes"
+  :number 158
+  :cost 12
+  :type 'automated
+  :requirements nil
+  :tags '(microbe building)
+  :action nil
+  :effect [(inc energy-production 1) (inc steel-production 1)]
+  :continuous-effect nil
+  :victory-points nil)
+
+(terraform-card-def "Lichen"
+  :number 159
+  :cost 7
+  :type 'automated
+  :requirements '(>= tempurature -24)
+  :tags '(plant)
+  :action nil
+  :effect [(inc plant-production 1)]
+  :continuous-effect nil
+  :victory-points nil)
+
+(terraform-card-def "Power Supply Consortium"
+  :number 160
+  :cost 5
+  :type 'automated
+  :requirements '(>= (tags (power)) 2)
+  :tags '(power)
+  :action nil
+  :effect [(dec-other energy-production 1) (inc energy-production 1)]
+  :continuous-effect nil
+  :victory-points nil)
+
+(terraform-card-def "Convoy From Europa"
+  :number 161
+  :cost 15
+  :type 'automated
+  :requirements nil
+  :tags '(space)
+  :action nil
+  :effect [(add-ocean) (inc card 1)]
+  :continuous-effect nil
+  :victory-points nil)
+
+(terraform-card-def "Imported GHG"
+  :number 162
+  :cost 7
+  :type 'automated
+  :requirements nil
+  :tags '(space earth)
+  :action nil
+  :effect [(inc heat 3) (inc heat-production 1)]
+  :continuous-effect nil
+  :victory-points nil)
+
+(terraform-card-def "Imported Nitrogen"
+  :number 163
+  :cost 23
+  :type 'automated
+  :tags '(space earth)
+  :effect [(inc rating 1) (inc plant 4) (add-other microbe 3) (add-other animal 2)])
+
+(terraform-card-def "Micro-Mills"
+  :number 164
+  :cost 3
+  :type 'automated
+  :requirements nil
+  :tags '()
+  :action nil
+  :effect [(inc heat-production 1)]
+  :continuous-effect nil
+  :victory-points nil)
+
+(terraform-card-def "Magnetic Field Generators"
+  :number 165
+  :cost 20
+  :type 'automated
+  :requirements nil
+  :tags '(building)
+  :action nil
+  :effect [(dec energy-production 4) (inc plant-production 2) (inc rating 3)])
+
+(terraform-card-def "Shuttles"
+  :number 166
+  :cost 10
+  :type 'active
+  :requirements '(>= oxygen 5)
+  :tags '(space)
+  :action nil
+  :effect [(dec energy-production 1) (inc money-production 2)]
+  :continuous-effect '(card-discount space 2)
+  :victory-points 1)
+
+(terraform-card-def "Import of Advanced GHG"
+  :number 167
+  :cost 9
+  :type 'event
+  :requirements nil
+  :tags '(earth space)
+  :action nil
+  :effect [(inc heat-production 2)]
+  :continuous-effect nil
+  :victory-points nil)
+
+(terraform-card-def "Windmills"
+  :number 168
+  :cost 6
+  :type 'automated
+  :requirements '(>= oxygen 7)
+  :tags '(power building)
+  :action nil
+  :effect [(inc energy-production 1)]
+  :continuous-effect nil
+  :victory-points 1)
+
+(terraform-card-def "Tundra Farming"
+  :number 169
+  :cost 16
+  :type 'automated
+  :requirements '(>= tempurature -6)
+  :tags '(plant)
+  :action nil
+  :effect [(inc plant-production 1) (inc money-production 2) (inc plant 1)]
+  :continuous-effect nil
+  :victory-points 2)
+
+(terraform-card-def "Aerobraked Ammonia Asteroid"
+  :number 170
+  :cost 26
+  :type 'automated
+  :requirements nil
+  :tags '(space)
+  :action nil
+  :effect [(inc heat-production 3) (inc plant-production 1) (add-other microbe 2)])
+
+(terraform-card-def "Magnetic Field Dome"
+  :number 171
+  :cost 5
+  :type 'automated
+  :requirements nil
+  :tags '(building)
+  :action nil
+  :effect [(dec energy-production 2) (inc plant-production 1) (inc rating 1)]
+  :continuous-effect nil
+  :victory-points nil)
+
+(terraform-card-def "Pets"
+  :number 172
+  :cost 10
+  :type 'active
+  :requirements nil
+  :tags '(earth animal)
+  :action nil
+  :effect [(add animal 1)]
+  :continuous-effect (on any-city [(add animal 1)])
+  :victory-points '(per-resource 1 2))
+
+(terraform-card-def "Protected Habitats"
+  :number 173
+  :cost 5
+  :type 'active
+  :requirements nil
+  :tags '()
+  :action nil
+  :effect nil
+  :continuous-effect `(add-modifier
+                       (format "Oppenents may not remove your %s %s %s"
+                               terraform--plant-char terraform--animal-tag terraform--microbe-tag)
+                       protected-habitats))
+
+(terraform-card-def "Protected Valley"
+  :number 174
+  :cost 23
+  :type 'automated
+  :requirements 
+  :tags '(plant building)
+  :action nil
+  :effect [(inc money-production 2) (add-greenery)])
+
+(terraform-card-def "Satellites"
+  :number 175
+  :cost 10
+  :type 'automated
+  :requirements nil
+  :tags '(space)
+  :action nil
+  :effect [(inc-per money (tags (space)))])
+
+(terraform-card-def "Noctis Farming"
+  :number 176
+  :cost 10
+  :type 'automated
+  :requirements '(>= tempurature -20)
+  :tags '(plant building)
+  :action nil
+  :effect [(inc money-production 1) (inc plant 2)]
+  :continuous-effect nil
+  :victory-points 1)
+
+(terraform-card-def "Water Splitting Plant"
+  :number 177
+  :cost 12
+  :type 'active
+  :requirements '(>= ocean 2)
+  :tags '(building)
+  :action [(-> (dec energy 3) [(inc-oxygen)])])
+
+(terraform-card-def "Heat Trappers"
+  :number 178
+  :cost 6
+  :type 'automated
+  :requirements nil
+  :tags '(power building)
+  :action nil
+  :effect [(dec-other heat-production 2) (inc energy-production 1)]
+  :victory-points -1 )
+
+(terraform-card-def "Soil Factory"
+  :number 179
+  :cost 9
+  :type 'automated
+  :requirements nil
+  :tags '(building)
+  :action nil
+  :effect [(dec energy-production 1) (inc plant-production 1)]
+  :continuous-effect nil
+  :victory-points 1)
+
+(terraform-card-def "Fuel Factory"
+  :number 180
+  :cost 6
+  :type 'automated
+  :requirements nil
+  :tags '(building)
+  :action nil
+  :effect [(dec energy-production 1) (inc titanium-production 1) (inc money-production 1)]
+  :continuous-effect nil
+  :victory-points nil)
+
+(terraform-card-def "Ice Cap Melting"
+  :number 181
+  :cost 5
+  :type 'event
+  :requirements '(>= tempurature 2)
+  :tags '()
+  :action nil
+  :effect [(add-ocean)]
+  :continuous-effect nil
+  :victory-points nil)
+
+(terraform-card-def "Corporate Stronghold"
+  :number 182
+  :cost 11
+  :type 'automated
+  :requirements nil
+  :tags '(city building)
+  :action nil
+  :effect [(dec energy-production 1) (inc money-production 3) (add-city)]
+  :continuous-effect nil
+  :victory-points -2)
+
+(terraform-card-def "Biomass Combustors"
+  :number 183
+  :cost 4
+  :type 'automated
+  :requirements '(>= oxygen 6)
+  :tags '(power building)
+  :action nil
+  :effect [(dec-other plant-production 1) (inc energy-production 2)]
+  :continuous-effect nil
+  :victory-points -1)
+
+(terraform-card-def "Livestock"
+  :number 184
+  :cost 13
+  :type 'active
+  :requirements '(>= oxygen 9)
+  :tags '(animal)
+  :action [(-> nil (add animal 1))]
+  :effect [(dec plant-production 1) (inc money-production 2)]
+  :continuous-effect nil
+  :victory-points '(per-resource 1 1))
+
+(terraform-card-def "Olympus Conference"
+  :number 185
+  :cost 10
+  :type 'active
+  :requirements nil
+  :tags '(science earth building)
+  :action nil
+  :effect nil
+  :continuous-effect '(on (tags science) (or (add science 1) [(remove science 1) (inc card 1)])) ;; implement this
+  :victory-points 1)
+
+(terraform-card-def "RAD-Suits"
+  :number 186
+  :cost 6
+  :type 'automated
+  :requirements '(>= city 2)
+  :tags '()
+  :action nil
+  :effect [(inc money-production 1)]
+  :continuous-effect nil
+  :victory-points 1)
+
+(terraform-card-def "Aquifer Pumping"
+  :number 187
+  :cost 18
+  :type 'active
+  :requirements nil
+  :tags '(building)
+  :action [(-> (buy steel 8) [(add-ocean)])])
+
+(terraform-card-def "Flooding"
+  :number 188
+  :cost 7
+  :type 'event
+  :requirements nil 
+  :tags '()
+  :action nil
+  :effect [(flooding)] ;; TODO Implement this
+  :victory-points -1)
+
+(terraform-card-def "Energy Savings"
+  :number 189
+  :cost 15
+  :type 'automated
+  :tags '()
+  :effect [(inc-per energy-production every-city)])
+
+(terraform-card-def "Local Heat Trapping"
+  :number 190
+  :cost 1
+  :type 'event
+  :requirements nil
+  :tags '()
+  :action nil
+  :effect [(dec heat 5) (or ((inc plant 4) (inc animal 2)))])
+
+(terraform-card-def "Permafrost Extraction"
+  :number 191
+  :cost 8
+  :type 'event
+  :requirements '(>= tempurature -8)
+  :tags '()
+  :action nil
+  :effect [(add-ocean)])
+
+(terraform-card-def "Invention Contest"
+  :number 192
+  :cost 2
+  :type 'event
+  :requirements nil
+  :tags '()
+  :action nil
+  :effect [(draw-cards-keep-some 3 1)])
+
+(terraform-card-def "Plantation"
+  :number 193
+  :cost 15
+  :type 'automated
+  :requirements '(>= (tags (science)) 2)
+  :tags '(plant)
+  :action nil
+  :effect [(add-greenery)]
+  :continuous-effect nil
+  :victory-points nil)
+
+(terraform-card-def "Power Infrastructure"
+  :number 194
+  :cost 4
+  :type 'active
+  :requirements nil
+  :tags '(power building)
+  :action [(-> nil [(convert-resource energy money)])])
+
+(terraform-card-def "Indentured Workers"
+  :number 195
+  :cost 0
+  :type 'event
+  :requirements nil
+  :tags '()
+  :action nil
+  :effect [(give-discount 8)] ;; TODO implement this
+  :victory-points -1)
+
+(terraform-card-def "Lagrange Observatory"
+  :number 196
+  :cost 9
+  :type 'automated
+  :requirements 
+  :tags '(science space)
+  :action nil
+  :effect [(inc card 1)]
+  :victory-points 1)
+
+(terraform-card-def "Terraforming Ganymede"
+  :number 197
+  :cost 33
+  :type 'automated
+  :requirements nil
+  :tags '(jovian space)
+  :action nil
+  :effect [(inc-per rating (tags jovian))]
+  :continuous-effect nil
+  :victory-points 2)
+
+(terraform-card-def "Immigration Shuttles"
+  :number 198
+  :cost 31
+  :type 'automated
+  :requirements nil
+  :tags '(earth space)
+  :effect [(inc money-production 5)]
+  :victory-points '(per-every-city 1 3))
+
+(terraform-card-def "Restricted Area"
+  :number 199
+  :cost 11
+  :type 'active
+  :requirements nil
+  :tags '(science)
+  :action [(-> (dec money 2) [(inc card 1)])]
+  :effect [(add-special restricted-area)]
+  :continuous-effect nil
+  :victory-points nil)
+
+(terraform-card-def "Immigrant City"
+  :number 200
+  :cost 13
+  :type 'active
+  :requirements nil
+  :tags '(city building)
+  :action nil
+  :effect [(dec energy-production 1) (dec money-production 2) (add-city)]
+  :continuous-effect (on any-city (inc money-production 1)))
+
+(terraform-card-def "Energy Tapping"
+  :number 201
+  :cost 3
+  :type 'automated
+  :requirements nil
+  :tags '(power)
+  :action nil
+  :effect [(dec-other energy-production 1) (inc energy-production 1)]
+  :continuous-effect nil
+  :victory-points -1)
+
+(terraform-card-def "Underground Detonations"
+  :number 202
+  :cost 6
+  :type 'active
+  :tags '(building)
+  :action [(-> (dec money 10) (inc heat-production 2))])
+
+(terraform-card-def "Soletta"
+  :number 203
+  :cost 35
+  :type 'automated
+  :tags '(space)
+  :effect [(inc heat-production 7)])
+
+(terraform-card-def "Technology Demonstration"
+  :number 204
+  :cost 5
+  :type 'event
+  :requirements nil
+  :tags '(science space)
+  :action nil
+  :effect [(inc card 2)])
+
+(terraform-card-def "RAD-Chem Factory"
+  :number 205
+  :cost 8
+  :type 'automated
+  :requirements nil
+  :tags '()
+  :action [(dec energy-production 1) (inc rating 2)])
+
+(terraform-card-def "Special Design"
+  :number 206
+  :cost 4
+  :type 'event
+  :tags '(science)
+  :effect [(give-param-discount 2)])
+
+(terraform-card-def "Medical Lab"
+  :number 207
+  :cost 13
+  :type 'automated
+  :requirements nil
+  :tags '(science building)
+  :action nil
+  :effect [(inc-per money-production (tags/ (building) 2))]
+  :victory-points 1)
+
+(terraform-card-def "AI Central"
+  :number 208
+  :cost 21
+  :type 'active
+  :requirements '(>= (tags science) 3)
+  :tags '(science building)
+  :action [(-> nil [(inc card 2)])]
+  :effect [(dec energy-production 1)]
+  :victory-points 1)
+
+(terraform-card-def "Small Asteroid"
+  :number 209
+  :cost 10
+  :type 'event
+  :requirements nil
+  :tags '(space)
+  :action nil
+  :effect [(inc-tempurature) (dec-other plant 2)])
+
+;; END OF STANDARD CARDS
 
 (defun terraform-card-generate-deck ()
   (let* ((ids (terraform-randomize (hash-table-keys terraform-card-directory))))

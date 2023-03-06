@@ -848,7 +848,7 @@
 (defun tr--board-line-top-special (tile line-no)
   (let* ((special-names '((lava-flows . "LAVA")
                           (industrial-center . "INDST")
-                          (neuclear-zone . "NUCLR")
+                          (nuclear-zone . "NUCLR")
                           (commercial-district . "COMMR")
                           (restricted-area . "RESTR")
                           (mohole-area . "MOHOL")

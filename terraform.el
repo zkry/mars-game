@@ -329,7 +329,7 @@
               (* (tr-get-player-resource-sell-amount tr-active-player resource)
                  (tr-get-requirement-count resource))))))))
 
-(defun tr-count-player-tags (player tag)
+(defun tr-count-player-tag (player tag)
   (let* ((played (tr-player-played player)))
     (apply #'+
            (seq-map
@@ -340,6 +340,8 @@
                (tr-card-tags project)))
             played))))
 
+(defun tr-count-player-tags (player tags)
+  (apply #'+ (seq-map (lambda (tag) (tr-count-player-tag player tag)) tags)))
 
 
 
@@ -354,7 +356,7 @@
            (effect-entry (terraform-card-effect-by-id effect-id))
            (lighter-func (terraform-card-effect-lighter effect-entry)))
       (unless effect-entry
-        (error "Unknown effect %s" effect-id))
+        (error "Unknown effect %s in %s" effect-id clause))
       (apply lighter-func effect-params))))
 
 (defun tr-requirements-to-string (requirements)
@@ -369,9 +371,14 @@
                  ('ocean "🌊")
                  ('titanium-production
                   (tr--char->prod tr--titanium-char))
+                 ('steel-production
+                  (tr--char->prod tr--steel-char))
                  ('oxygen "O₂")
                  ('tempurature "°C")
                  ('science-tag tr--science-tag)
+                 ('greenery tr--greenery-indicator)
+                 (`(tags ,tags)
+                  (string-join (seq-map #'tr-tag-to-string tags)))
                  (_ (error "undefined left %s" left))))
               (cmp-str
                (pcase cmp
@@ -1184,31 +1191,33 @@ Result is an alist of (resource . amt) with (:total . amt) for the total sell pr
                          ((memq 'space tags)
                           'titanium)
                          ((memq 'building tags)
-                          'steel)))
-         (sell-price (tr-get-player-resource-sell-amount tr-active-player sell-resource))
-         (player-resource (terraform-get-requirement-count sell-resource))
-         (max-sell-amt (min (ceiling (/ (float cost) sell-price)) player-resource))
-         (sell-amt 0)
-         (heat-sell-amt 0))
-    (when (> max-sell-amt 0)
-      (let* ((resp (read-number (format "%s to sell @ %d$ (0-%d):"
-                                        (tr-resource-type-to-string sell-resource)
-                                        sell-price
-                                        max-sell-amt))))
-        (unless (<= 0 resp max-sell-amt)
-          (user-error "Invalid amount %d, should be between 0 and %d" resp max-sell-amt))
-        (setq sell-amt resp)))
-    (when (tr--player-can-sell-heat-p)
-      (let* ((resp (read-number (format "%s to sell @ 1$ (0-%d):"
-                                        tr--heat-char
-                                        max-sell-amt))))
-        (unless (<= 0 resp max-sell-amt)
-          (user-error "Invalid amount %d, should be between 0 and %d" resp max-sell-amt))
-        (setq sell-amt resp)))
-    (let* ((total (+ heat-sell-amt (* sell-amt sell-price))))
-      `((,sell-resource . ,sell-amt)
-        (heat . ,heat-sell-amt)
-        (:total . ,total)))))
+                          'steel))))
+    (if (not sell-resource)
+        '((:total . 0))
+      (let* ((sell-price (tr-get-player-resource-sell-amount tr-active-player sell-resource))
+             (player-resource (terraform-get-requirement-count sell-resource))
+             (max-sell-amt (min (ceiling (/ (float cost) sell-price)) player-resource))
+             (sell-amt 0)
+             (heat-sell-amt 0))
+        (when (> max-sell-amt 0)
+          (let* ((resp (read-number (format "%s to sell @ %d$ (0-%d):"
+                                            (tr-resource-type-to-string sell-resource)
+                                            sell-price
+                                            max-sell-amt))))
+            (unless (<= 0 resp max-sell-amt)
+              (user-error "Invalid amount %d, should be between 0 and %d" resp max-sell-amt))
+            (setq sell-amt resp)))
+        (when (tr--player-can-sell-heat-p)
+          (let* ((resp (read-number (format "%s to sell @ 1$ (0-%d):"
+                                            tr--heat-char
+                                            max-sell-amt))))
+            (unless (<= 0 resp max-sell-amt)
+              (user-error "Invalid amount %d, should be between 0 and %d" resp max-sell-amt))
+            (setq sell-amt resp)))
+        (let* ((total (+ heat-sell-amt (* sell-amt sell-price))))
+          `((,sell-resource . ,sell-amt)
+            (heat . ,heat-sell-amt)
+            (:total . ,total)))))))
 
 (defun tr--display-project-selection (project-ids)
   (insert "Select a Project:\n")
@@ -1719,7 +1728,12 @@ Result is an alist of (resource . amt) with (:total . amt) for the total sell pr
   (unless (tr-card-p card)
     (error "invalid card" card))
   (pcase-let ((`(-> ,cost ,effect) action))
-    (tr-!run-effect (vector cost effect) params card)))
+    (if (vectorp effect)
+        (seq-do
+         (lambda (effect)
+           (tr-!run-effect (vector cost effect) params card))
+         effect)
+      (tr-!run-effect (vector cost effect) params card))))
 
 (defun tr--event-applicable-p (event owner handle-sym handle-player)
   ;; effect on card
@@ -1882,9 +1896,9 @@ Result is an alist of (resource . amt) with (:total . amt) for the total sell pr
     ('ocean (tr-game-state-param-ocean tr-game-state))
     ('oxygen (tr-game-state-param-oxygen tr-game-state))
     ('tempurature (tr-ct-to-tempurature (tr-game-state-param-tempurature tr-game-state)))
-    ('science-tag (tr-count-player-tags tr-active-player 'science))
-    ('microbe-tag (tr-count-player-tags tr-active-player 'microbe))
-    ('plant-tag (tr-count-player-tags tr-active-player 'plant))))
+    ('science-tag (tr-count-player-tag tr-active-player 'science))
+    ('microbe-tag (tr-count-player-tag tr-active-player 'microbe))
+    ('plant-tag (tr-count-player-tag tr-active-player 'plant))))
 
 (defun tr-get-tile-count (top-sym)
   (let ((ct 0))
@@ -1899,18 +1913,7 @@ Result is an alist of (resource . amt) with (:total . amt) for the total sell pr
    ct))
 
 (defun tr-requirements-satisfied-p (requirements)
-  (pcase requirements
-    (`(> ,resource ,amt)  ;; TODO: add pred to check that resource is symbol
-     (> (tr-get-requirement-count resource) amt))
-    (`(>= ,resource ,amt)
-     (>= (tr-get-requirement-count resource) amt))
-    (`(< ,resource ,amt)
-     (< (tr-get-requirement-count resource) amt))
-    (`(<= ,resource ,amt)
-     (<= (tr-get-requirement-count resource) amt))
-    (`(own-forest ,amt)
-     (>= (tr-get-tile-count 'greenery) amt))
-    (_ t)))
+  (terraform-eval-card-condition requirements))
 
 (defun tr-playable-projects-for (player)
   (let ((money (tr-player-money player))
@@ -2118,6 +2121,29 @@ Result is an alist of (resource . amt) with (:total . amt) for the total sell pr
                    `(select-starting-cards ,corps ,cards)
                    #'tr-!corporation-selected))))
 
+(defun tr-run-with-selected-card ()
+  "Demo command to run game."
+  (unless tr-game-state
+    (error "No initialized game state"))
+  (tr-reset-game-state)
+  (setq tr-selection-spec nil
+        tr-current-selection nil)
+  (setq tr-game-state (tr--new-game-state 1))
+  (dolist (player (tr-game-state-players tr-game-state))
+    (let* ((card-names (seq-map
+                        (lambda (id)
+                          (plist-get (gethash id tr-card-directory) :name ))
+                        (hash-table-keys tr-card-directory)))
+           (selected-card-name (completing-read "Card:" card-names nil t))
+           (selected-id (seq-find (lambda (id)
+                                    (equal (plist-get (gethash id tr-card-directory) :name) selected-card-name))
+                                  (hash-table-keys tr-card-directory)))
+           (corps (tr-!draw-corporations))
+           (cards (cons (apply #'terraform-card-create (gethash selected-id tr-card-directory)) (tr-!draw-cards 10))))
+      (tr->request player
+                   `(select-starting-cards ,corps ,cards)
+                   #'tr-!corporation-selected))))
+
 
 ;;;  Game Mode
 
@@ -2136,8 +2162,6 @@ Result is an alist of (resource . amt) with (:total . amt) for the total sell pr
   (setq buffer-read-only t)
   (setq-local truncate-lines 0)
   (toggle-truncate-lines 1))
-
-
 
 ;;; TODO LIST
 ;; Card to string

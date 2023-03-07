@@ -47,6 +47,8 @@
 
 (defun terraform-resource-type-to-string (type)
   (pcase type
+    (`(tags ,tags)
+     (string-join (seq-map #'terraform-resource-type-to-string tags) ""))
     ('money-production (terraform--char->prod terraform--money-char))
     ('money terraform--money-char)
     ('plant-production (terraform--char->prod terraform--plant-char))
@@ -64,6 +66,8 @@
                          (terraform--char->decrease-any "]")))
     ('microbe "🦠")
     ('animal "🐾")
+    ('space terraform--space-tag)
+    ('jovian terraform--jovian-tag)
     ('any-animal (concat
                   (terraform--char->decrease-any "[")
                   "🐾"
@@ -96,6 +100,43 @@
 (defun terraform-card-register-effect (effect-name param-list extra-action lighter-fn effect-fn requirement immediate-action)
   (add-to-list 'terraform-card-effect-registry (list effect-name param-list extra-action lighter-fn effect-fn requirement immediate-action)
                t #'equal))
+
+(defun terraform-eval-card-effect-lighter (form)
+  (cond
+   ((numberp form)
+    (number-to-string form))
+   ((listp form)
+    (let* ((effect (terraform-card-effect-by-id (car form)))
+           (lighter-fn (terraform-card-effect-lighter effect)))
+      (unless lighter-fn
+        (error "No lighter function for %s" form))
+      (apply lighter-fn (cdr form))))
+   ((stringp form)
+    form)
+   (t (error "Unhandled lighter case for form %s" form))))
+
+(defun terraform-eval-card-condition (form)
+  (pcase form
+    ('nil t)
+    ((pred symbolp) (terraform-get-requirement-count form))
+    ((pred numberp) form)
+    (`(tags ,tag-list)
+     (terraform-count-player-tags terraform-active-player tag-list))
+    (`(>= ,a ,b)
+     (>= (terraform-eval-card-condition a)
+         (terraform-eval-card-condition b)))
+    (`(<= ,a ,b)
+     (<= (terraform-eval-card-condition a)
+         (terraform-eval-card-condition b)))
+    (`(> ,a ,b)
+     (> (terraform-eval-card-condition a)
+        (terraform-eval-card-condition b)))
+    (`(< ,a ,b)
+     (< (terraform-eval-card-condition a)
+        (terraform-eval-card-condition b)))
+    (`(= ,a ,b)
+     (= (terraform-eval-card-condition a)
+        (terraform-eval-card-condition b)))))
 
 (defmacro terraform-card-def-effect (name params &rest body)
   (declare (indent 2))
@@ -136,6 +177,10 @@
   :lighter (format "+%d%s" amt (terraform-resource-type-to-string resource))
   (setf (terraform-card-resource-count terraform-active-card)
         (+ (or (terraform-card-resource-count terraform-active-card) 0) amt)))
+
+(terraform-card-def-effect add-other (resource amt)
+  :lighter (format "+%d%s*" amt (terraform-resource-type-to-string resource))
+  (error "not implemented"))
 
 (terraform-card-def-effect inc-per (resource by)
   :lighter (format "+%s/%s"
@@ -185,19 +230,20 @@
                                              (terraform-resource-type-to-string resource)))
                        (options (seq-map
                                  (lambda (option)
-                                   (pcase option
-                                     (`(,player ,card ,amt)
-                                      (format "From %s(%s) on card %s remove %d"
-                                              (terraform-corporation-name (terraform-player-corp-card player))
-                                              (terraform-player-id player)
-                                              (terraform-card-name card)
-                                              amt))
-                                     (`(,player ,amt)
-                                      (format "From %s(%s) remove %d"
-                                              (terraform-corporation-name (terraform-player-corp-card player))
-                                              (terraform-player-id player)
-                                              amt)))
-                                   (cons option (format "{%s}" option)))
+                                   (let ((text
+                                          (pcase option
+                                            (`(,player ,card ,amt)
+                                             (format "From %s(%s) on card %s remove %d"
+                                                     (terraform-corporation-name (terraform-player-corp-card player))
+                                                     (terraform-player-id player)
+                                                     (terraform-card-name card)
+                                                     amt))
+                                            (`(,player ,amt)
+                                             (format "From %s(%s) remove %d"
+                                                     (terraform-corporation-name (terraform-player-corp-card player))
+                                                     (terraform-player-id player)
+                                                     amt)))))
+                                     (cons option text)))
                                  (terraform--get-other-options resource amt)))
                        (options (if (not (terraform--production-resource-p resource))
                                     (cons (cons 'skip "Skip")
@@ -224,14 +270,12 @@
 (terraform-card-def-effect inc-tempurature ()
   :lighter "+℃"
   (when (< (terraform-game-state-param-tempurature terraform-game-state) 19)
-    (terraform-!increment-user-resource 'rating 1)
     (terraform-!increase-tempurature 1)))
 
 (terraform-card-def-effect inc-oxygen ()
-  :lighter "+℃"
+  :lighter "+O₂"
   (when (< (terraform-game-state-param-oxygen terraform-game-state) 14)
-    (terraform-!increment-user-resource 'rating 1)
-    (terraform-!increase-tempurature 1)))
+    (terraform-!increase-oxygen 1)))
 
 (terraform-card-def-effect add-ocean ()
   :lighter "+🌊"
@@ -275,7 +319,9 @@
   :lighter (format "%s%s%s"
                    (terraform-effect-to-string cost)
                    terraform--action-arrow
-                   (terraform-effect-to-string action)))
+                   (if (vectorp action)
+                       (string-join (seq-map #'terraform-effect-to-string action) "; ")
+                     (terraform-effect-to-string action))))
 
 (terraform-card-def-effect draw-cards-keep-some (ct buy)
   :lighter (if (= 1 ct)
@@ -313,12 +359,92 @@
 (terraform-card-def-effect add-modifier (descr flag)
   :lighter descr)
 
-(terraform-card-def-effect or (&rest clauses)
+(terraform-card-def-effect or (clauses)
   :lighter (string-join
             (seq-map
              #'terraform-effect-to-string
              clauses)
-            "|"))
+            "|")
+  (lambda (selected)
+    (terraform-!run-effect (vector selected))))
+
+;; specialized version of or
+(terraform-card-def-effect effect-virus ()
+  :lighter (format "-2%s|-5%s"
+                   (terraform--char->decrease-any terraform--animal-tag)
+                   (terraform--char->decrease-any terraform--plant-char))
+  :extra-action (let* ((title-string (format "Select user to decrease %s|%s"
+                                             terraform--animal-tag
+                                             terraform--plant-char))
+                       (other-animals (terraform--get-other-options 'animal 2))
+                       (other-plants (terraform--get-other-options 'plant 2))
+                       (options (seq-map
+                                 (lambda (option)
+                                   (let ((text
+                                          (pcase option
+                                            (`(,player ,card ,amt)
+                                             (format "From %s(%s) on card %s remove %d%s"
+                                                     (terraform-corporation-name (terraform-player-corp-card player))
+                                                     (terraform-player-id player)
+                                                     (terraform-card-name card)
+                                                     amt
+                                                     terraform--animal-tag))
+                                            (`(,player ,amt)
+                                             (format "From %s(%s) remove %d%s"
+                                                     (terraform-corporation-name (terraform-player-corp-card player))
+                                                     (terraform-player-id player)
+                                                     amt
+                                                     terraform--plant-char)))))
+                                     (cons option text)))
+                                 (append other-animals other-plants)))
+                       (options (cons (cons 'skip "Skip")
+                                      options)))
+                  `(selection
+                    :title ,title-string
+                    :items [(selection :title "Choose One"
+                                       :items ,options
+                                       :type one)]
+                    :validation (lambda (_) '(info ""))
+                    :on-confirm (lambda (selection)  ;; TODO - probaly can do w/o player arg
+                                  (tr--process-arg-selection selection))))
+  (lambda (selection)
+    (pcase selection
+      (`(skip . ,_))
+      (`((,player ,card ,amt) . ,_)
+       (cl-decf (terraform-card-resource-count card) amt))
+      (`((,player ,amt) . ,_)
+       (message "decreasing player by %d" amt)
+       (terraform-!increment-user-resource 'plant (- amt)))
+      (_ (error "option not recognized %s" selection)))))
+
+(terraform-card-def-effect if (condition case1 case2)
+  :lighter (concat "if (" (terraform-eval-card-effect-lighter condition)
+                        ") {" (terraform-eval-card-effect-lighter case1)
+                        "} else {" (terraform-eval-card-effect-lighter case2) "}")
+  (let ((non-nil-p (terraform-eval-card-condition condition)))
+    (if non-nil-p
+        (terraform-!run-effect (vector case1))
+      (terraform-!run-effect (vector case2)))))
+
+(terraform-card-def-effect >= (A B)
+  :lighter (concat (terraform-eval-card-effect-lighter A) ">=" (terraform-eval-card-effect-lighter B)))
+
+(terraform-card-def-effect tags (tag-list)
+  :lighter (string-join (seq-map (lambda (tag) (terraform-tag-to-string tag)) tag-list) ""))
+
+(terraform-card-def-effect convert-resource (from-resource to-resource)
+  :lighter (format "X%s→X%s"
+                   (terraform-resource-type-to-string from-resource)
+                   (terraform-resource-type-to-string to-resource))
+  (error "not implemented"))
+
+(terraform-card-def-effect steal (resource amt)
+  :lighter (format "steal %d%s"
+                   amt
+                   (terraform-resource-type-to-string resource))
+  (error "not implemented"))
+
+
 
 ;; TODO: This is handled elsewhere and is not needed...
 (terraform-card-def-effect on (event handler)
@@ -705,9 +831,9 @@
   :type 'event
   :requirements nil
   :tags '(space)
-  :effect [(inc plant-production 1)
-           (when (>= (tags plant) 3) ;; TODO: 
-             (inc plant-production 3))
+  :effect [(if (>= (tags (plant)) 3) 
+               (inc plant-production 4)
+             (inc plant-production 1))
            (inc rating 2)
            (inc-tempurature)])
 
@@ -793,7 +919,7 @@
   :number 46
   :cost 8
   :type 'automated
-  :requirements '(>= (tags (science)) 3) ;; TODO: implement tags requirements
+  :requirements '(>= (tags (science)) 3)
   :tags '(power)
   :action nil
   :effect [(inc energy-production 1) (inc money-production 1)]
@@ -836,7 +962,7 @@
   :requirements nil
   :tags '(microbe)
   :action nil
-  :effect [(or ((dec-other animal 2) (dec-other plant 5)))]) ;; TODO implement or
+  :effect [(effect-virus)]) ;; TODO implement or
 
 (terraform-card-def "Miranda Resort"
   :number 51
@@ -845,7 +971,7 @@
   :requirements nil
   :tags '(jovian space)
   :action nil
-  :effect [(inc-per money-production (tags earth))] ;; TODO implement inc-per with tags
+  :effect [(inc-per money-production (tags (earth)))] ;; TODO implement inc-per with tags
   :continuous-effect nil
   :victory-points 1)
 
@@ -894,7 +1020,6 @@
   :number 56
   :cost 4
   :type 'automated
-  :requirements 
   :tags '(building)
   :effect [(inc steel-production 1)])
 
@@ -1097,10 +1222,8 @@
   :type 'active
   :requirements '(>= (tags (science)) 4)
   :tags '()
-  :action 
-  :effect 
-  :continuous-effect 
-  :victory-points )
+  :effect [(inc energy-production 4)]
+  :continuous-effect '(card-discount space 2))
 
 (terraform-card-def "Giant Ice Asteroid"
   :number 80
@@ -1161,14 +1284,14 @@
   :continuous-effect nil
   :victory-points '(per-city 1 1))
 
-((terraform-card-def "Robotic Workforce"
-   :number 86
-   :cost 9
-   :type 'automated
-   :requirements nil
-   :tags '(science)
-   :action nil
-   :effect [(duplicate-automated (tags building))])) ;; TODO Implement this
+(terraform-card-def "Robotic Workforce"
+  :number 86
+  :cost 9
+  :type 'automated
+  :requirements nil
+  :tags '(science)
+  :action nil
+  :effect [(duplicate-automated (tags (building)))]) ;; TODO Implement this
 
 (terraform-card-def "Grass"
   :number 87
@@ -1203,7 +1326,7 @@
   :cost 11
   :type 'automated
   :requirements nil
-  :tags '(science science) ;; TODO Does this work for other counts?
+  :tags '(science science)
   :action nil
   :effect [(inc card 2)]
   :victory-points 1)
@@ -1215,7 +1338,7 @@
   :requirements '(>= (tags (science)) 3)
   :tags '(science)
   :action nil
-  :effect (inc money-production 2)
+  :effect [(inc money-production 2)]
   :continuous-effect nil
   :victory-points 2)
 
@@ -1317,7 +1440,7 @@
   :type 'automated
   :requirements nil
   :tags '()
-  :action [(-> (dec energy 4) [(inc steel 1) (inc-oxygen)])] ;; TODO do vectors work here?
+  :action [(-> (dec energy 4) [(inc steel 1) (inc-oxygen)])]
   :effect nil
   :continuous-effect nil
   :victory-points nil)
@@ -1327,7 +1450,7 @@
   :cost 18
   :type 'automated
   :tags '(power)
-  :effect [(inc-per energy-production (tags power))] ;; TODO make sure that this works
+  :effect [(inc-per energy-production (tags (power)))] ;; TODO make sure that this works
   )
 
 (terraform-card-def "Steelworks"
@@ -1569,7 +1692,7 @@
   :number 128
   :cost 12
   :type 'active
-  :requirements '(>= own-forest 1)
+  :requirements '(>= greenery 1)
   :tags '(animal plant)
   :action nil
   :effect [(add-special ecological-zone)]
@@ -1595,7 +1718,7 @@
   :requirements '(>= oxygen 4)
   :tags '(microbe)
   :action nil
-  :effect [(inc-per plant (tags microbe))]
+  :effect [(inc-per plant (tags (microbe)))]
   :continuous-effect nil
   :victory-points nil)
 
@@ -1612,7 +1735,7 @@
   :number 132
   :cost 14
   :type 'automated
-  :requirements '(>= (tags power) 2)
+  :requirements '(>= (tags (power)) 2)
   :tags '(science building power)
   :action nil
   :effect [(inc energy-production 3)]
@@ -1651,7 +1774,7 @@
   :number 136
   :cost 12
   :type 'automated
-  :requirements 
+  :requirements '(>= ocean 4)
   :tags '(power building)
   :action nil
   :effect [(inc energy-production 2)]
@@ -1664,7 +1787,7 @@
   :requirements nil
   :tags '(earth)
   :action nil
-  :effect [(inc-per money (tags earth))]
+  :effect [(inc-per money (tags (earth)))]
   :victory-points 1)
 
 (terraform-card-def "Strip Mine"
@@ -1745,7 +1868,7 @@
   :number 145
   :cost 18
   :type 'automated
-  :requirements '(>= (tags science) 2)
+  :requirements '(>= (tags (science)) 2)
   :tags '(power building)
   :action nil
   :effect [(inc energy-production 3)]
@@ -1781,7 +1904,7 @@
   :requirements '(>= oxygen 6)
   :tags '(microbe)
   :action nil
-  :effect [(inc-per plant (tags plant))]
+  :effect [(inc-per plant (tags (plant)))]
   :continuous-effect nil
   :victory-points nil)
 
@@ -1800,7 +1923,7 @@
   :number 150
   :cost 14
   :type 'active
-  :requirements '(>= (tags science) 7)
+  :requirements '(>= (tags (science)) 7)
   :tags '(science)
   :continuous-effect '(card-discount nil 2)
   :victory-points 3)
@@ -2032,7 +2155,7 @@
   :tags '(earth animal)
   :action nil
   :effect [(add animal 1)]
-  :continuous-effect (on any-city [(add animal 1)])
+  :continuous-effect '(on any-city [(add animal 1)])
   :victory-points '(per-resource 1 2))
 
 (terraform-card-def "Protected Habitats"
@@ -2052,7 +2175,6 @@
   :number 174
   :cost 23
   :type 'automated
-  :requirements 
   :tags '(plant building)
   :action nil
   :effect [(inc money-production 2) (add-greenery)])
@@ -2169,7 +2291,7 @@
   :tags '(science earth building)
   :action nil
   :effect nil
-  :continuous-effect '(on (tags science) (or (add science 1) [(remove science 1) (inc card 1)])) ;; implement this
+  :continuous-effect '(on (tags (science)) (or ((add science 1) [(remove science 1) (inc card 1)]))) ;; implement this
   :victory-points 1)
 
 (terraform-card-def "RAD-Suits"
@@ -2268,7 +2390,6 @@
   :number 196
   :cost 9
   :type 'automated
-  :requirements 
   :tags '(science space)
   :action nil
   :effect [(inc card 1)]
@@ -2281,7 +2402,7 @@
   :requirements nil
   :tags '(jovian space)
   :action nil
-  :effect [(inc-per rating (tags jovian))]
+  :effect [(inc-per rating (tags (jovian)))]
   :continuous-effect nil
   :victory-points 2)
 
@@ -2313,7 +2434,7 @@
   :tags '(city building)
   :action nil
   :effect [(dec energy-production 1) (dec money-production 2) (add-city)]
-  :continuous-effect (on any-city (inc money-production 1)))
+  :continuous-effect '(on any-city (inc money-production 1)))
 
 (terraform-card-def "Energy Tapping"
   :number 201
@@ -2378,7 +2499,7 @@
   :number 208
   :cost 21
   :type 'active
-  :requirements '(>= (tags science) 3)
+  :requirements '(>= (tags (science)) 3)
   :tags '(science building)
   :action [(-> nil [(inc card 2)])]
   :effect [(dec energy-production 1)]

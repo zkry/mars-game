@@ -64,7 +64,8 @@
   rating
   corp-card
   hand
-  played)
+  played
+  next-turn-effects)
 
 (defun tr-player-modifications (player)
   (seq-map
@@ -109,6 +110,12 @@
     (error "invalid player: %s" player))
   (setf (tr-player-hand player)
         (append projects (tr-player-hand player))))
+
+(defun tr-player-by-id (id)
+  (seq-find
+   (lambda (player)
+     (eql (tr-player-id player) id))
+   (tr-game-state-players tr-game-state)))
 
 
 ;;; game board
@@ -194,7 +201,7 @@
 
     ;; sixth rown
     (:bonus (plant)) (:bonus (plant plant)) (:bonus (plant))
-    (:bonus (plant)) (:bonus (plant 1)) (:bonus (plant) :type ocean)
+    (:bonus (plant)) (:bonus (plant)) (:bonus (plant) :type ocean)
     (:bonus (plant) :type ocean) (:bonus (plant) :type ocean)
 
     ;; seventh row
@@ -228,6 +235,22 @@
          (eql (plist-get tile :name) name)))
      locations)))
 
+(defun tr-game-board-count-greeneries ()
+  (seq-count
+   (lambda (coord)
+     (eql (plist-get (tr--gameboard-tile-at coord) :top) 'greenery))
+   (tr--board-coordinates)))
+
+(defun tr-adjacent-players (coord)
+  "Return a list of adjacent player IDs to COORD."
+  (let* ((adjacent-tiles (tr--gameboard-adjacent-tiles coord)))
+    (seq-filter
+     #'identity
+     (seq-map
+      (lambda (tile)
+        (plist-get tile :player))
+      adjacent-tiles))))
+
 
 ;;; Cards
 
@@ -247,7 +270,8 @@
   continuous-effect
   effect
   resource-count
-  used)
+  used
+  accepts)
 
 (defconst tr--standard-projects
   `(,(tr-card-create
@@ -343,6 +367,12 @@
 (defun tr-count-player-tags (player tags)
   (apply #'+ (seq-map (lambda (tag) (tr-count-player-tag player tag)) tags)))
 
+(defun tr-card-accepts-resource-p (card resource)
+  "Return non-nil if CARD can take on resource of type RESOURCE."
+  (and (eql (tr-card-type card) 'active)
+       (let* ((action (tr-card-action card))
+              (continuous-effect (tr-card-continuous-effect card))))))
+
 
 
 ;;; Generic Functions
@@ -377,6 +407,7 @@
                  ('tempurature "°C")
                  ('science-tag tr--science-tag)
                  ('greenery tr--greenery-indicator)
+                 ('city tr--city-tag)
                  (`(tags ,tags)
                   (string-join (seq-map #'tr-tag-to-string tags)))
                  (_ (error "undefined left %s" left))))
@@ -443,6 +474,15 @@
   (if effect
       (pcase effect
         (`(add-modifier ,label ,_mod) label)
+        (`(resource-enrich ,resource ,amt)
+         (format "%s worth +%d"
+                 (tr-resource-type-to-string resource)
+                 amt))
+        (`(card-discount ,tag ,amt)
+         (format "%s:-%d%s"
+                 (terraform-tag-to-string tag)
+                 amt
+                 terraform--money-char))
         (`(on ,event ,effect)
          (format "%s:%s" (tr-continuous-effect-trigger-to-string event) (string-join (seq-map #'tr-effect-to-string effect) "; "))))
     ""))
@@ -471,7 +511,7 @@
   (format "%s %s %s"
           (tr-corporation-name item)
           (tr-effects-to-string (tr-corporation-effect item))
-          (tr-effects-to-string (list (tr-corporation-continuous-effect item)))))
+          (tr-continuous-effect-to-string (tr-corporation-continuous-effect item))))
 
 (defun tr-card-propertized-name (card)
   (let* ((card-type (tr-card-type card))
@@ -924,6 +964,15 @@
       (plist-get tile :top))
     (tr--gameboard-adjacent-tiles pt))))
 
+(defun tr--board-adjacent-city-ct (pt)
+  (seq-count
+   (lambda (top)
+     (eql top 'city))
+   (seq-map
+    (lambda (tile)
+      (plist-get tile :top))
+    (tr--gameboard-adjacent-tiles pt))))
+
 (defun tr--board-adjacent-to-own (pt)
   (seq-find
    (lambda (player)
@@ -942,7 +991,10 @@
                                   (tr--in-board-p bottom-pt))
                               (copy-sequence " _ _ ")
                             "     ")))
-                    (make-string line-length ?\s))))
+                    (make-string line-length ?\s)))
+         (already-taken-p
+          (lambda (pt)
+            (member pt tr-current-args))))
     (if (not (tr--in-board-p pt))
         content
       (let* ((at-tile (tr--gameboard-tile-at pt))
@@ -959,7 +1011,8 @@
          ((eql top 'special)
           (tr--board-line-top-special at-tile line-no))
          ((eql type 'ocean) ;; EMPTY OCEAN
-          (if (eql (tr-current-pending-arg) 'empty-ocean)
+          (if (and (eql (tr-current-pending-arg) 'empty-ocean)
+                   (not (funcall already-taken-p pt)))
               (tr--highlight-tile
                (tr--board-line-ocean at-tile line-no))
             (tr--board-line-ocean at-tile line-no)))
@@ -970,11 +1023,18 @@
             (if (not (tr--valid-coordinate-p pt))
                 line
               (cond
+               ((funcall already-taken-p pt)
+                line)
+               ((eql (tr-current-pending-arg) 'empty-land)
+                (tr--highlight-tile line))
                ((and (eql (tr-current-pending-arg) 'standard-city-placement)
                      (not (tr--board-adjacent-city-p pt)))
                 (tr--highlight-tile line))
                ((and (eql (tr-current-pending-arg) 'standard-greenery-placement)
                      (tr--board-adjacent-to-own pt))
+                (tr--highlight-tile line))
+               ((and (eql (tr-current-pending-arg) 'city-placement-adj-2)
+                     (>= (tr--board-adjacent-city-ct pt) 2))
                 (tr--highlight-tile line))
                (t line))))))))))
 
@@ -1398,6 +1458,10 @@ Result is an alist of (resource . amt) with (:total . amt) for the total sell pr
   "Display the main message prompting the user to select an argument."
   (insert "\n")
   (pcase (tr-current-pending-arg)
+    ('city-placement-adj-2
+     (insert "Please select land tile adjacent to two cities."))
+    ('empty-land
+     (insert "Please select an empty land tile."))
     ('empty-ocean
      (insert "Please select an empty ocean tile."))
     ('standard-city-placement
@@ -1677,6 +1741,13 @@ Result is an alist of (resource . amt) with (:total . amt) for the total sell pr
              board)
     (tr-!trigger-continuous-effects `(city-placed) tr-active-player)))
 
+(defun tr-!place-city-noplace (city-id)
+  "Simulates the placement of a city but does not actually place a city.
+This is for the side-effect of city-placement."
+  (let ((extra-spaces-ht (tr-gameboard-extra-spaces (tr-game-state-gameboard tr-game-state))))
+    (puthash city-id (tr-player-id tr-active-player) extra-spaces-ht))
+  (tr-!trigger-continuous-effects `(city-placed) tr-active-player))
+
 (defun tr--count-thing (thing)
   (pcase thing
     ('every-city
@@ -1686,7 +1757,44 @@ Result is an alist of (resource . amt) with (:total . amt) for the total sell pr
          (let* ((tile (tr--gameboard-tile-at coord)))
            (when (eql (plist-get tile :top) 'city)
              (cl-incf ct))))
-       ct))))
+       ct))
+    (`(tags ,tag-list)
+     (let* ((played (tr-player-played tr-active-player)))
+       (apply
+        #'+
+        (seq-map
+         (lambda (card)
+           (seq-count
+            (lambda (tag)
+              (member tag tag-list))
+            (tr-card-tags card)))
+         played))))
+    (`(tags/ ,tag-list ,div-by)
+     (let ((count (tr--count-thing (list 'tags tag-list))))
+       (truncate count div-by)))
+    (`(opponents-tags ,tag-list)
+     (let* ((opponents (seq-filter
+                        (lambda (player)
+                          (not (equal playe tr-active-player)))
+                        (tr-game-state-players tr-game-state))))
+       (apply
+        #'+
+        (seq-map
+         (lambda (opponent)
+           (let ((tr-active-player opponent))
+             (tr--count-thing (list 'tag tag-list))))
+         opponents))))
+    ('every-event
+     (let* ((players (tr-game-state-players tr-game-state)))
+       (apply
+        #'+
+        (seq-map
+         (lambda (player)
+           (seq-count
+            (lambda (card)
+              (eql (tr-card-type card) 'event))
+            (tr-player-played player)))
+         players))))))
 
 (defun tr--project-action-inventors-guild (this player)
   (let ((card (car (tr-!draw-cards 1))))
@@ -1898,7 +2006,8 @@ Result is an alist of (resource . amt) with (:total . amt) for the total sell pr
     ('tempurature (tr-ct-to-tempurature (tr-game-state-param-tempurature tr-game-state)))
     ('science-tag (tr-count-player-tag tr-active-player 'science))
     ('microbe-tag (tr-count-player-tag tr-active-player 'microbe))
-    ('plant-tag (tr-count-player-tag tr-active-player 'plant))))
+    ('plant-tag (tr-count-player-tag tr-active-player 'plant))
+    ('greenery (tr-game-board-count-greeneries))))
 
 (defun tr-get-tile-count (top-sym)
   (let ((ct 0))
@@ -1929,15 +2038,14 @@ Result is an alist of (resource . amt) with (:total . amt) for the total sell pr
                 (effects (tr-card-effect card)))
             (and (>= money cost)
                  (tr-requirements-satisfied-p requirements)
-                 (or (not requirements)
-                     (seq-every-p (lambda (effect)
-                                    (let* ((effect-id (car effect))
-                                           (effect-params (cdr effect))
-                                           (effect-data (tr-card-effect-by-id effect-id))
-                                           (requirement (tr-card-effect-requirement effect-data)))
-                                      (or (not requirement)
-                                          (apply requirement effect-params))))
-                                  effects)))))
+                 (seq-every-p (lambda (effect)
+                                (let* ((effect-id (car effect))
+                                       (effect-params (cdr effect))
+                                       (effect-data (tr-card-effect-by-id effect-id))
+                                       (requirement (tr-card-effect-requirement effect-data)))
+                                  (or (not requirement)
+                                      (apply requirement effect-params))))
+                              effects))))
         hand)))))
 
 (defun tr-playable-project-actions-for (player)
@@ -2006,7 +2114,8 @@ Result is an alist of (resource . amt) with (:total . amt) for the total sell pr
 
 (defun interstitial-action-performed (player &optional _action)
   "Callback for PLAYER after interstitial action performed."
-  (tr-action-step))
+  (tr-action-step)
+  (tr-display-board))
 
 ;; TODO: I don't like how the actions spec is all over the place...
 (defun tr-action-performed (player action)

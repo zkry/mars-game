@@ -1000,7 +1000,8 @@
       (let* ((at-tile (tr--gameboard-tile-at pt))
              (type (plist-get at-tile :type))
              (top (plist-get at-tile :top))
-             (name (plist-get at-tile :name)))
+             (name (plist-get at-tile :name))
+             (bonus (plist-get at-tile :bonus)))
         (cond
          ((eql top 'ocean)
           (tr--board-line-top-ocean at-tile line-no))
@@ -1026,6 +1027,10 @@
                ((funcall already-taken-p pt)
                 line)
                ((eql (tr-current-pending-arg) 'empty-land)
+                (tr--highlight-tile line))
+               ((and (eql (tr-current-pending-arg) 'mining-bonus)
+                     (or (member 'steel bonus)
+                         (member 'titanium bonus)))
                 (tr--highlight-tile line))
                ((and (eql (tr-current-pending-arg) 'standard-city-placement)
                      (not (tr--board-adjacent-city-p pt)))
@@ -1281,6 +1286,11 @@ Result is an alist of (resource . amt) with (:total . amt) for the total sell pr
 
 (defun tr--display-project-selection (project-ids)
   (insert "Select a Project:\n")
+  (dolist (effect (terraform-player-next-turn-effects terraform-active-player))
+    (pcase effect
+      (`(discount ,amt)
+       (insert (format "Next card has a discount of %d%s\n"
+                       amt tr--money-char)))))
   (dolist (proj-id project-ids)
     (let* ((card (tr-card-by-id proj-id)))
       (insert "   " (button-buttonize "[ ]"
@@ -1460,6 +1470,9 @@ Result is an alist of (resource . amt) with (:total . amt) for the total sell pr
   (pcase (tr-current-pending-arg)
     ('city-placement-adj-2
      (insert "Please select land tile adjacent to two cities."))
+    ('mining-bonus
+     (insert (format "Please select a tile with a %s/%s bonus"
+                     tr--steel-char tr--titanium-char)))
     ('empty-land
      (insert "Please select an empty land tile."))
     ('empty-ocean
@@ -1903,9 +1916,12 @@ This is for the side-effect of city-placement."
   ;; Note that the first parameter when running a project is always
   ;; the cards buy amount (regardless of whether or not it was
   ;; building or space).
-  (let* ((sell-amounts (pop params))
+  (let* ((effects (terraform-player-next-turn-effects terraform-active-player))
+         (discount-amt (or (cadr (seq-find (lambda (effect) (eql (car effect) 'discount)) effects))
+                            0))
+         (sell-amounts (pop params))
          (card (tr-card-by-id project-id))
-         (cost (tr-card-cost card))
+         (cost (max (- (tr-card-cost card) discount-amt) 0))
          (final-cost (max (- cost (alist-get :total sell-amounts)) 0))
          (effect (tr-card-effect card)))
     (tr-!increment-user-resource 'money (- final-cost))
@@ -1916,7 +1932,8 @@ This is for the side-effect of city-placement."
            (tr-!increment-user-resource resource (- amt))))))
     (tr-!run-effect effect params)
     (tr-!play-in-front project-id)
-    (tr-!trigger-continuous-effects `(project-played ,card) tr-active-player)))
+    (tr-!trigger-continuous-effects `(project-played ,card) tr-active-player))
+  (setf (terraform-player-next-turn-effects terraform-active-player) nil))
 
 ;; Turn order ---
 

@@ -417,7 +417,7 @@
 
 (terraform-card-def-effect add-special (id)
   :lighter (format "+%s" (symbol-name id))
-  :extra-action 'standard-greenery-placement
+  :extra-action 'empty-land
   (lambda (param)
     (let ((location param))
       (terraform-!place-special location id))))
@@ -622,7 +622,11 @@
 (terraform-card-def-effect give-discount (amt)
   :lighter (format "-%d%s discount on next proj."
                  amt
-                 terraform--money-char))
+                 terraform--money-char)
+  (setf (terraform-player-next-turn-effects terraform-active-player)
+        (cons
+         `(discount ,amt)
+         (terraform-player-next-turn-effects terraform-active-player))))
 
 (terraform-card-def-effect flooding ()
   :lighter (format "+%s -4%s*"
@@ -663,12 +667,18 @@
   (lambda (pos)
     (terraform-!place-ocean pos)))
 
-(terraform-card-def-effect add-mining (tile)
+(terraform-card-def-effect add-mining (tile-sym)
   :lighter (format "+%s w/ +%s OR %s"
                    (symbol-name tile)
                    terraform--steel-char
                    terraform--titanium-char)
-  (error "not implemented"))
+  :extra-action 'mining-bonus
+  (lambda (coord)
+    (let* ((tile (terraform--gameboard-tile-at coord))
+           (bonus (car (plist-get tile :bonus)))
+           (prod-sym (intern (concat (symbol-name bonus) "-production"))))
+      (terraform-!place-special coord tile-sym)
+      (terraform-!increment-user-resource prod-sym 1))))
 
 (terraform-card-def-effect add-other-with-resource (resource amt)
   :lighter "+1 resource for card w/ resource"

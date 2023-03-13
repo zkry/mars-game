@@ -74,9 +74,11 @@
    (seq-filter
     (lambda (effect)
       (and effect (eql (car effect) 'add-modifier)))
-    (seq-map
-     #'tr-card-continuous-effect
-     (tr-player-played player)))))
+    (append
+     (seq-map
+      #'tr-card-continuous-effect
+      (tr-player-played player))
+     (list (tr-corporation-continuous-effect (tr-player-corp-card player)))))))
 
 (defun tr-get-player-resource-sell-amount (player resource)
   (pcase resource
@@ -86,7 +88,7 @@
 (defun tr--player-can-sell-heat-p (&optional player)
   (seq-find
    (lambda (mod)
-     (eql mod heat-as-money))
+     (eql mod 'heat-as-money))
    (tr-player-modifications (or player tr-active-player))))
 
 (defun tr-get-player-greenery-cost (&optional player)
@@ -1252,18 +1254,20 @@ Result is an alist of (resource . amt) with (:total . amt) for the total sell pr
   ;; HEAT sell
   (let* ((tags (tr-card-tags card))
          (cost (tr-card-cost card))
+         (total 0)
+         (sell-amt 0)
+         (heat-sell-amt 0)
          (sell-resource (cond
                          ((memq 'space tags)
                           'titanium)
                          ((memq 'building tags)
                           'steel))))
-    (if (not sell-resource)
-        '((:total . 0))
+    
+    (when sell-resource
       (let* ((sell-price (tr-get-player-resource-sell-amount tr-active-player sell-resource))
              (player-resource (terraform-get-requirement-count sell-resource))
              (max-sell-amt (min (ceiling (/ (float cost) sell-price)) player-resource))
-             (sell-amt 0)
-             (heat-sell-amt 0))
+             )
         (when (> max-sell-amt 0)
           (let* ((resp (read-number (format "%s to sell @ %d$ (0-%d):"
                                             (tr-resource-type-to-string sell-resource)
@@ -1271,18 +1275,25 @@ Result is an alist of (resource . amt) with (:total . amt) for the total sell pr
                                             max-sell-amt))))
             (unless (<= 0 resp max-sell-amt)
               (user-error "Invalid amount %d, should be between 0 and %d" resp max-sell-amt))
-            (setq sell-amt resp)))
-        (when (tr--player-can-sell-heat-p)
-          (let* ((resp (read-number (format "%s to sell @ 1$ (0-%d):"
+            (setq sell-amt resp)
+            (cl-incf total (* sell-amt sell-price))))))
+    (when (tr--player-can-sell-heat-p)
+      (let* ((heat-resource (tr-get-requirement-count 'heat)))
+        (when (> heat-resource 0)
+          (let* ((max-sell-amt (min (- cost total) heat-resource))
+                 (resp (read-number (format "%s to sell @ 1$ (0-%d):"
                                             tr--heat-char
                                             max-sell-amt))))
             (unless (<= 0 resp max-sell-amt)
               (user-error "Invalid amount %d, should be between 0 and %d" resp max-sell-amt))
-            (setq sell-amt resp)))
-        (let* ((total (+ heat-sell-amt (* sell-amt sell-price))))
-          `((,sell-resource . ,sell-amt)
-            (heat . ,heat-sell-amt)
-            (:total . ,total)))))))
+            (setq heat-sell-amt resp)
+            (cl-incf total heat-sell-amt)))))
+    (if sell-resource
+        `((,sell-resource . ,sell-amt)
+          (heat . ,heat-sell-amt)
+          (:total . ,total))
+      `((heat . ,heat-sell-amt)
+        (:total . ,total)))))
 
 (defun tr--display-project-selection (project-ids)
   (insert "Select a Project:\n")

@@ -201,8 +201,9 @@
                     :on-confirm (lambda (selection)
                                   (terraform--process-arg-selection selection))))
   (pcase-lambda (`(,card . ,_))
-    (setf (terraform-card-resource-count card)
-          (+ (or (terraform-card-resource-count card) 0) amt))))
+    (unless (eql card skip)
+      (setf (terraform-card-resource-count card)
+            (+ (or (terraform-card-resource-count card) 0) amt)))))
 
 (terraform-card-def-effect imported-hydrogen ()
   :lighter (format "+3%s OR +3%s OR +2%s"
@@ -669,7 +670,7 @@
 
 (terraform-card-def-effect add-mining (tile-sym)
   :lighter (format "+%s w/ +%s OR %s"
-                   (symbol-name tile)
+                   (symbol-name tile-sym)
                    terraform--steel-char
                    terraform--titanium-char)
   :extra-action 'mining-bonus
@@ -682,7 +683,29 @@
 
 (terraform-card-def-effect add-other-with-resource (resource amt)
   :lighter "+1 resource for card w/ resource"
-  (error "not implemented"))
+  :extra-action (let* ((options (seq-filter
+                                 #'identity
+                                 (seq-map
+                                  (lambda (card)
+                                    (when (and (or (and (eql resource '_)
+                                                        (terraform-card-accepts card))
+                                                   (eql (terraform-card-accepts card) resource))
+                                               (> (terraform-card-resource-count card) 0))
+                                      (cons card (terraform-card-short-line-string card))))
+                                  (terraform-player-played terraform-active-player))))
+                       (options (cons (cons 'skip "Skip") options)))
+                  `(selection
+                    :title ,title-string
+                    :items [(selection :title "Choose One"
+                                       :items ,options
+                                       :type one)]
+                    :validation (lambda (_) '(info ""))
+                    :on-confirm (lambda (selection)
+                                  (terraform--process-arg-selection selection))))
+  (pcase-lambda (`(,card . ,_))
+    (unless (eql card skip)
+      (setf (terraform-card-resource-count card)
+            (+ (or (terraform-card-resource-count card) 0) amt)))))
 
 (terraform-card-def-effect add-city-urbanized-area ()
   :lighter (format "%s*" terraform--city-tag)
@@ -1090,7 +1113,8 @@
   :tags '(space)
   :action [(-> (dec titanium 1)
                (add fighter 1))]
-  :victory-points '(per-resource 1 1))
+  :victory-points '(per-resource 1 1)
+  :accepts 'fighter)
 
 (terraform-card-def "Optimal Aerobraking"
   :number 31
@@ -1697,7 +1721,8 @@
   :action [(-> (dec energy 6) (add science 1))]
   :effect nil
   :continuous-effect nil
-  :victory-points '(per-resource 2 1))
+  :victory-points '(per-resource 2 1)
+  :accepts 'science)
 
 (terraform-card-def "Greenhouse"
   :number 96

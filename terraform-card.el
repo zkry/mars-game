@@ -828,7 +828,12 @@
  :number 4
  :tags '(building building)
  :effect [(inc money 30) (inc steel 5) (inc steel-production 1)]
- :continuous-effect '(add-modifier "⚒*/**:[⚒]" tile-placement-gain-steel-prod))
+ :continuous-effect `(add-modifier
+                      ,(format "; %s*/%s*:%s"
+                              terraform--steel-char
+                              terraform--titanium-char
+                              (terraform--char->prod terraform--steel-char) )
+                      tile-placement-gain-steel-prod))
 
 (cl-defun terraform-card-def (name &key number cost tags type victory-points requirements effect action
                                    continuous-effect
@@ -1037,7 +1042,7 @@
   :type 'active
   :tags '(science city building)
   :effect [(add-non-adjacent-city)]
-  :continuous-effect '(add-modifier ":-1$" (reduce-project-cost 1)))
+  :continuous-effect '(card-discount nil 1))
 
 (terraform-card-def "Phobos Space Haven"
   :number 21

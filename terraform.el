@@ -313,6 +313,26 @@
               (= (tr-card-number card) id))
             (tr-game-state-all-cards tr-game-state)))
 
+(defun tr-card-effective-cost (card)
+  "Return the cost of a card after applying discounts."
+  (if (not tr-active-player)
+      (tr-card-cost card)
+    (let* ((base-cost (tr-card-cost card)))
+      (seq-do
+       (lambda (effect)
+         (pcase effect
+           (`(card-discount ,tag ,amt)
+            (when (or (eql tag '_)
+                      (member tag (tr-card-tags card)))
+              (cl-decf base-cost amt)))))
+       (seq-map
+        (lambda (card)
+          (tr-card-continuous-effect card))
+        (tr-player-played tr-active-player)))
+      (when (< base-cost 0)
+        (setq base-cost 0))
+      base-cost)))
+
 (cl-defstruct (tr-corporation
                (:constructor tr-corporation-create)
                (:copier nil))
@@ -482,7 +502,9 @@
                  amt))
         (`(card-discount ,tag ,amt)
          (format "%s:-%d%s"
-                 (terraform-tag-to-string tag)
+                 (if tag
+                     (terraform-tag-to-string tag)
+                   "")
                  amt
                  terraform--money-char))
         (`(on ,event ,effect)
@@ -500,7 +522,7 @@
                       ('event 'tr-event-face)))
          (card-name (tr-card-propertized-name item))
          (base (format "$%2d %5s %s %s %s %s "
-                       (tr-card-cost item)
+                       (tr-card-effective-cost item)
                        (tr-requirements-to-string (tr-card-requirements item))
                        card-name
                        (tr-effects-to-string (tr-card-effect item))
@@ -1715,9 +1737,14 @@ Result is an alist of (resource . amt) with (:total . amt) for the total sell pr
 (defun tr-!placement-bonus (coord)
   (let ((tile (tr--gameboard-tile-at coord)))
     ;; Tile Bonus
-    (let* ((bonus (plist-get tile :bonus)))
+    (let* ((bonus (plist-get tile :bonus))
+           (gain-steel-prod-p (member 'tile-placement-gain-steel-prod (tr-player-modifications tr-active-player))))
       (dolist (bonus-item bonus)
-        (tr-!increment-user-resource bonus-item 1)))
+        (tr-!increment-user-resource bonus-item 1))
+      (when (and gain-steel-prod-p
+                 (or (member 'steel bonus)
+                     (member 'titanium bonus)))
+        (tr-!increment-user-resource 'steel-production 1)))
     ;; Ocean bonus
     (let* ((adj-tiles (tr--gameboard-adjacent-tiles coord))
            (ocean-bonus (* 2 (length (seq-filter (lambda (tile) (eql (plist-get tile :top) 'ocean)) adj-tiles)))))
@@ -1763,6 +1790,7 @@ Result is an alist of (resource . amt) with (:total . amt) for the total sell pr
          (tile (gethash coord board)))
     (puthash coord (plist-put (plist-put tile :top 'city) :player (tr-player-id tr-active-player))
              board)
+    (tr-!placement-bonus coord)
     (tr-!trigger-continuous-effects `(city-placed) tr-active-player)))
 
 (defun tr-!place-city-noplace (city-id)
@@ -1920,7 +1948,14 @@ This is for the side-effect of city-placement."
             (pcase continuous-effect
               (`(on ,handle-sym ,action)
                (when (tr--event-applicable-p event owner handle-sym player)
-                 (tr-!run-effect action nil project))))))))))
+                 (tr-!run-effect action nil project))))))
+        ;; abstract corps and projects
+        (let* ((continuous-effect (tr-corporation-continuous-effect
+                                   (tr-player-corp-card player))))
+          (pcase continuous-effect
+            (`(on ,handle-sym ,action)
+             (when (tr--event-applicable-p event owner handle-sym player)
+               (tr-!run-effect action nil nil)))))))))
 
 (defun tr-!run-project (project-id params)
   "Run the effects of a given card."

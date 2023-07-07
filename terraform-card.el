@@ -45,6 +45,56 @@
 
 (defconst terraform-card-effect-registry nil)
 
+(defconst terraform--tree-char "♠")
+(defconst terraform--city-char "#")
+
+(defconst terraform--card-char "▮")
+(defconst terraform--money-char (propertize "$" 'font-lock-face 'terraform-money-face))
+(defconst terraform--steel-char (propertize "⚒" 'font-lock-face 'terraform-steel-face))
+(defconst terraform--titanium-char (propertize "*" 'font-lock-face 'terraform-titanium-face))
+(defconst terraform--plant-char (propertize "☘" 'font-lock-face 'terraform-plant-face))
+(defconst terraform--energy-char (propertize "↯" 'font-lock-face 'terraform-energy-face))
+(defconst terraform--heat-char (propertize "≋" 'font-lock-face 'terraform-heat-face))
+
+;; tags
+(defconst terraform--city-tag "🏙️")
+(defconst terraform--microbe-tag "🦠️")
+(defconst terraform--building-tag "🏗️")
+(defconst terraform--space-tag "🌠")
+(defconst terraform--science-tag "🔬")
+(defconst terraform--power-tag "⚡")
+(defconst terraform--earth-tag "🌎")
+(defconst terraform--jovian-tag (propertize "♃" 'font-lock-face '(:height 150 :background "#AF6E12" :box "#EBC388" :foreground "white")))
+(defconst terraform--venus-tag (propertize "V" 'font-lock-face '(:height 150 :background "#0A73B0" :foreground "white")))
+(defconst terraform--plant-tag "🌱")
+(defconst terraform--animal-tag "🐾")
+(defconst terraform--wild-tag "❓")
+(defconst terraform--event-tag "⬇️")
+
+;; indicators
+(defconst terraform--ocean-indicator "🌊")
+(defconst terraform--greenery-indicator "🌳")
+(defconst terraform--city-indicator "🌆")
+
+(defconst terraform--action-arrow (propertize "→" 'font-lock-face '(:foreground "red" :weight bold)))
+
+(defun terraform--char->decrease-any (char)
+  "Add properties to CHAR to make it indicate production."
+  (if (emoji-describe char) 
+      (concat (terraform--char->decrease-any "[") char (terraform--char->decrease-any "]"))
+    (propertize char 'font-lock-face
+                (list
+                 '(:foreground "red")
+                 (get-text-property 0 'font-lock-face char)))))
+
+(defun terraform--char->prod (char)
+  "Add properties to CHAR to make it indicate production."
+  (propertize char 'font-lock-face
+              (list
+               '(:box (:line-width (3 . 3)
+                                   :color "brown"))
+               (get-text-property 0 'font-lock-face char))))
+
 (defun terraform-resource-type-to-string (type)
   (pcase type
     (`(tags ,tags)
@@ -124,6 +174,10 @@
     ('nil t)
     ((pred symbolp) (terraform-get-requirement-count form))
     ((pred numberp) form)
+    (`(and ,cases)
+     (seq-every-p
+      #'terraform-eval-card-condition
+      cases))
     (`(tags ,tag-list)
      (terraform-count-player-tags terraform-active-player tag-list))
     (`(>= ,a ,b)
@@ -777,7 +831,12 @@
 (terraform-card-def-effect on (event handler)
   :lighter
   (progn
-    (message ">>> %s" handler)
+    (format "%s:%s" event (string-join (seq-map #'terraform-effect-to-string handler) "; ")))
+  nil)
+
+(terraform-card-def-effect on (event handler)
+  :lighter
+  (progn
     (format "%s:%s" event (string-join (seq-map #'terraform-effect-to-string handler) "; ")))
   nil)
 
@@ -2112,9 +2171,9 @@
   :number 135
   :cost 11
   :type 'automated
-  :requirements '(and (>= (tags (plant)) 1)
-                      (>= (tags (microbe)) 1)
-                      (>= (tags (animal)) 1))
+  :requirements '(and ((>= (tags (plant)) 1)
+                       (>= (tags (microbe)) 1)
+                       (>= (tags (animal)) 1)))
   :tags '(plant microbe animal)
   :victory-points 3)
 
@@ -2867,20 +2926,6 @@
   :effect [(inc-tempurature) (dec-other plant 2)])
 
 ;; END OF STANDARD CARDS
-
-(defun terraform-card-generate-deck ()
-  (let* ((ids (terraform-randomize (hash-table-keys terraform-card-directory))))
-    (seq-map
-     (lambda (id)
-       (apply #'terraform-card-create (gethash id terraform-card-directory)))
-     ids)))
-
-(defun terraform-card-generate-corporation-deck ()
-  (let* ((ids (terraform-randomize (hash-table-keys terraform-card-corporation-directory))))
-    (seq-map
-     (lambda (id)
-       (apply #'terraform-corporation-create (gethash id terraform-card-corporation-directory)))
-     ids)))
 
 (provide 'terraform-card)
 

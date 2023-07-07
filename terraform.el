@@ -5,7 +5,7 @@
 ;; Version: 0.1.0
 ;; Package-Requires: ((emacs "25.1"))
 ;; Homepage: https://github.com/zkry/terraform.el
-;; Keywords: 
+;; Keywords:
 
 
 ;; This file is not part of GNU Emacs
@@ -26,7 +26,7 @@
 
 ;;; Commentary:
 
-;; 
+;;
 
 ;;; Code:
 
@@ -313,6 +313,15 @@
               (= (tr-card-number card) id))
             (tr-game-state-all-cards tr-game-state)))
 
+(defun tr-played-continuous-effects (effect-name)
+  (seq-filter
+   (lambda (effect)
+     (equal (car effect) effect-name))
+   (seq-map
+    (lambda (card)
+      (tr-card-continuous-effect card))
+    (tr-player-played tr-active-player))))
+
 (defun tr-card-effective-cost (card)
   "Return the cost of a card after applying discounts."
   (if (not tr-active-player)
@@ -417,6 +426,9 @@
     (pcase requirements
       (`(own-forest ,amt)
        (format "🌳>%d" amt))
+      (`(and ,cases)
+       (string-join
+        (seq-map #'tr-requirements-to-string cases)))
       (`(,cmp ,left ,right)
        (let* ((left-str
                (pcase left
@@ -508,8 +520,12 @@
                  amt
                  terraform--money-char))
         (`(on ,event ,effect)
-         (format "%s:%s" (tr-continuous-effect-trigger-to-string event) (string-join (seq-map #'tr-effect-to-string effect) "; "))))
-    ""))
+         (format "%s:%s" (tr-continuous-effect-trigger-to-string event) (string-join (seq-map #'tr-effect-to-string effect) "; ")))
+        (`(_??? ,amt)
+         (format "± %d 🌊|°C|O₂ req." amt))
+        (`(standard-project-discount ,amt)
+         (format "-%d%s standard proj." amt tr--money-char)))
+    "?C?"))
 
 (cl-defgeneric tr-line-string (item)
   (:documentation "Display item on a single line."))
@@ -566,6 +582,8 @@
 ;; global parameters are on a scale of 0 to max, including the
 ;; tempurature.
 
+(require 'terraform-card)
+
 (defvar tr-game-state nil)
 
 (defconst tr--game-state-max-tempurature 14)
@@ -578,6 +596,35 @@
 (defun tr-ct-to-tempurature (ct)
   "Convert tempurature index CT to tempurature in degrees celcius."
   (- (* ct 2) 30))
+
+(defun tr-randomize (elts &optional from)
+  "Shuffle list of ELTS from FROM to the end recursively. "
+  (when (listp elts)
+    (setq elts (seq-into elts 'vector)))
+  (unless from
+    (setq from 0))
+  (when (< from (length elts))
+    (let* ((random-idx (+ (random (- (length elts) from)) from))
+           (swap-elt (aref elts random-idx))
+           (from-elt (aref elts from)))
+      (aset elts from swap-elt)
+      (aset elts random-idx from-elt)
+      (terraform-randomize elts (1+ from))))
+  (seq-into elts 'list))
+
+(defun terraform-card-generate-deck ()
+  (let* ((ids (tr-randomize (hash-table-keys terraform-card-directory))))
+    (seq-map
+     (lambda (id)
+       (apply #'terraform-card-create (gethash id terraform-card-directory)))
+     ids)))
+
+(defun terraform-card-generate-corporation-deck ()
+  (let* ((ids (tr-randomize (hash-table-keys terraform-card-corporation-directory))))
+    (seq-map
+     (lambda (id)
+       (apply #'terraform-corporation-create (gethash id terraform-card-corporation-directory)))
+     ids)))
 
 (cl-defstruct
     (tr-game-state
@@ -696,7 +743,7 @@
   "Face for city tiles"
   :group 'terraform)
 
-;; resources 
+;; resources
 (defface tr-money-face
   '((t :foreground "#060500"
        :background "#F7E11C"))
@@ -756,58 +803,6 @@
 ;; TODO: figure out how to add box faces
 ;; :box (:line-width (3 . 3)
 ;;             :color "brown")
-
-(defconst tr--tree-char "♠")
-(defconst tr--city-char "#")
-
-(defconst tr--card-char "▮")
-(defconst tr--money-char (propertize "$" 'font-lock-face 'tr-money-face))
-(defconst tr--steel-char (propertize "⚒" 'font-lock-face 'tr-steel-face))
-(defconst tr--titanium-char (propertize "*" 'font-lock-face 'tr-titanium-face))
-(defconst tr--plant-char (propertize "☘" 'font-lock-face 'tr-plant-face))
-(defconst tr--energy-char (propertize "↯" 'font-lock-face 'tr-energy-face))
-(defconst tr--heat-char (propertize "≋" 'font-lock-face 'tr-heat-face))
-
-;; tags
-(defconst tr--city-tag "🏙️")
-(defconst tr--microbe-tag "🦠️")
-(defconst tr--building-tag "🏗️")
-(defconst tr--space-tag "🌠")
-(defconst tr--science-tag "🔬")
-(defconst tr--power-tag "⚡")
-(defconst tr--earth-tag "🌎")
-(defconst tr--jovian-tag (propertize "♃" 'font-lock-face '(:height 150 :background "#AF6E12" :box "#EBC388" :foreground "white")))
-(defconst tr--venus-tag (propertize "V" 'font-lock-face '(:height 150 :background "#0A73B0" :foreground "white")))
-(defconst tr--plant-tag "🌱")
-(defconst tr--animal-tag "🐾")
-(defconst tr--wild-tag "❓")
-(defconst tr--event-tag "⬇️")
-
-;; indicators
-(defconst tr--ocean-indicator "🌊")
-(defconst tr--greenery-indicator "🌳")
-(defconst tr--city-indicator "🌆")
-
-(defconst tr--action-arrow (propertize "→" 'font-lock-face '(:foreground "red" :weight bold)))
-
-
-
-(defun tr--char->decrease-any (char)
-  "Add properties to CHAR to make it indicate production."
-  (if (emoji-describe char) 
-      (concat (tr--char->decrease-any "[") char (tr--char->decrease-any "]"))
-    (propertize char 'font-lock-face
-                (list
-                 '(:foreground "red")
-                 (get-text-property 0 'font-lock-face char)))))
-
-(defun tr--char->prod (char)
-  "Add properties to CHAR to make it indicate production."
-  (propertize char 'font-lock-face
-              (list
-               '(:box (:line-width (3 . 3)
-                                   :color "brown"))
-               (get-text-property 0 'font-lock-face char))))
 
 (defconst tr--player1-token (propertize " " 'font-lock-face 'tr-player1-face))
 (defconst tr--player2-token (propertize " " 'font-lock-face 'tr-player2-face))
@@ -1284,7 +1279,7 @@ Result is an alist of (resource . amt) with (:total . amt) for the total sell pr
                           'titanium)
                          ((memq 'building tags)
                           'steel))))
-    
+
     (when sell-resource
       (let* ((sell-price (tr-get-player-resource-sell-amount tr-active-player sell-resource))
              (player-resource (terraform-get-requirement-count sell-resource))
@@ -1355,7 +1350,7 @@ Result is an alist of (resource . amt) with (:total . amt) for the total sell pr
                               (pcase-lambda (`(,project ,action))
                                 (pcase-let ((`(-> ,cost ,effect) action))
                                   (tr-get-args ;; TODO - bad name: action of card and action of user
-                                   (seq-filter #'identity (seq-map #'tr--extract-action (vector cost effect))) 
+                                   (seq-filter #'identity (seq-map #'tr--extract-action (vector cost effect)))
                                    (lambda (args)
                                      (tr-submit-response
                                       (car tr-pending-request)
@@ -1370,10 +1365,12 @@ Result is an alist of (resource . amt) with (:total . amt) for the total sell pr
   (dolist (standard-project tr--standard-projects)
     (let ((label (tr-card-name standard-project))
           (cost (tr-card-cost standard-project))
-          (proj-id (tr-card-number standard-project)))
+          (proj-id (tr-card-number standard-project))
+          ;; TODO centralize this logic
+          (discount (apply #'+ (seq-map #'cadr (tr-played-continuous-effects 'standard-project-discount)))))
       (when (member proj-id standard-project-ids)
         (insert "   " (button-buttonize (format "[%2d] %s"
-                                                cost
+                                                (- cost discount)
                                                 label)
                                         (lambda (standard-project)
                                           (tr-get-args
@@ -1614,21 +1611,6 @@ Result is an alist of (resource . amt) with (:total . amt) for the total sell pr
          (top-two (seq-take corp-deck 2)))
     (setf (tr-game-state-corporation-deck tr-game-state) (seq-drop corp-deck 2))
     top-two))
-
-(defun tr-randomize (elts &optional from)
-  "Shuffle list of ELTS from FROM to the end recursively. "
-  (when (listp elts)
-    (setq elts (seq-into elts 'vector)))
-  (unless from
-    (setq from 0))
-  (when (< from (length elts))
-    (let* ((random-idx (+ (random (- (length elts) from)) from))
-           (swap-elt (aref elts random-idx))
-           (from-elt (aref elts from)))
-      (aset elts from swap-elt)
-      (aset elts random-idx from-elt)
-      (terraform-randomize elts (1+ from))))
-  (seq-into elts 'list))
 
 (defun tr-!reshuffle-deck ()
   (let* ((new-deck '())
@@ -1886,7 +1868,7 @@ This is for the side-effect of city-placement."
   (unless tr-active-player
     (error "No active player's turn."))
   (unless (tr-card-p card)
-    (error "invalid card" card))
+    (error "invalid card: %s" card))
   (pcase-let ((`(-> ,cost ,effect) action))
     (if (vectorp effect)
         (seq-do
@@ -2126,9 +2108,13 @@ This is for the side-effect of city-placement."
 (defun tr-standard-projects-for (player)
   "Return list of all standard projects a player can take."
   (let ((hand (tr-player-hand player))
-        (money (tr-player-money player)))
+        (money (tr-player-money player))
+        ;; TODO Centralize discount
+        (discount (apply '#+ (seq-map '#cadr (tr-played-continuous-effects 'standard-project-discount)))))
+    (setq money (+ money discount))
     (seq-filter
      #'identity
+     ;; TODO: Centralize these variables
      (list (when (>= money 11) 'power-plant)
            (when (>= money 14) 'asteroid)
            (when (>= money 18) 'aquifer)
@@ -2218,6 +2204,11 @@ This is for the side-effect of city-placement."
         (`(extra heat-to-tempurature)
          (tr-!run-effect [(dec heat 8) (inc-tempurature)]))
         (_ (error "Invalid action response %s" action)))
+      ;; hacky way to implement standard project discount
+      (when (equal (car action) 'standard-projects)
+        (let ((standard-project-discount
+               (apply #'+ (seq-map #'cadr (tr-played-continuous-effects 'standard-project-discount)))))
+          (tr-!run-effect `[(inc money ,standard-project-discount)])))
       (if tr-interstitial-action
           (tr->request tr-active-player tr-interstitial-action
                        #'interstitial-action-performed)
@@ -2341,9 +2332,8 @@ This is for the side-effect of city-placement."
 
 ;;; DEMO SETUP
 
-(terraform-run)
-
-(cadr terraform-pending-request)
+(progn (tr-run-with-selected-card)
+       (tr-display-board))
 
 ;; (let* ((p1 (car (terraform-game-state-players terraform-game-state)))
 ;;        (req (cadr terraform-pending-request))
@@ -2361,5 +2351,4 @@ This is for the side-effect of city-placement."
 
 ;;; terraform.el ends here
 ;; Local Variables:
-;; read-symbol-shorthands: (("tr-" . "terraform-"))
-;; End:
+;; read-symbol-shorthands: (("tr-" . "terraform-"));; End:

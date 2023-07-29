@@ -2110,7 +2110,7 @@ This is for the side-effect of city-placement."
   (let ((hand (tr-player-hand player))
         (money (tr-player-money player))
         ;; TODO Centralize discount
-        (discount (apply '#+ (seq-map '#cadr (tr-played-continuous-effects 'standard-project-discount)))))
+        (discount (apply #'+ (seq-map #'cadr (tr-played-continuous-effects 'standard-project-discount)))))
     (setq money (+ money discount))
     (seq-filter
      #'identity
@@ -2351,4 +2351,5 @@ This is for the side-effect of city-placement."
 
 ;;; terraform.el ends here
 ;; Local Variables:
-;; read-symbol-shorthands: (("tr-" . "terraform-"));; End:
+;; read-symbol-shorthands: (("tr-" . "terraform-"))
+;; End:
